@@ -1,25 +1,25 @@
-# Proximal Distance Algorithms: Theory and Practice
+### Proximal Distance Algorithms: Theory and Practice
 
 This folder contains code for the manuscript by KL Keys, H Zhou, K Lange. 
 All proximal distance algorithm code is in Julia.
 The subfolders are
 
-* `lp` for *l*inear *p*rogramming
-* `nqp` for *n*nonnegative *q*uadratic *p*rogramming
-* `socp` for *s*econd *o*rder *c*one *p*rogramming
-* `spca` for *s*parse *p*rincipal *c*omponents *a*nalysis
-* `spm` for *s*parse *p*recision *m*atrix
+* `lp` for linear programming
+* `nqp` for nonnegative quadratic programming
+* `socp` for second order cone programming
+* `spca` for sparse principal components analysis
+* `spm` for sparse precision matrix
 
 ## External software
 
-The paper uses external software packages for comparison.
+The paper uses external software packages for comparison of algorithmic performance.
 To correctly reproduce the comparisons requires installation of the software.
 It may also require valid commercial licenses.
 
 # R 
 
 The sparse PCA example uses the R package [`PMA`](https://cran.r-project.org/web/packages/PMA/index.html) for comparison.
-Users can download it from CRAN from within R via the command
+Users can download it from [CRAN](https://cran.r-project.org/web/packages/PMA/index.html) or from within R directly via the command
 
     install.packages("PMA")
 
@@ -34,6 +34,6 @@ It is freely available on Github [here](https://github.com/cvxgrp/scs).
 
 # Ipopt
 
-The Interior Point Optimizer is an open-source nonlinear solver.
+The [Interior Point Optimizer](https://projects.coin-or.org/Ipopt) is an open-source nonlinear solver.
 The paper used Ipopt via [Ipopt.jl](https://github.com/JuliaOpt/Ipopt.jl).
 Installing Ipopt.jl also installs the solver.
