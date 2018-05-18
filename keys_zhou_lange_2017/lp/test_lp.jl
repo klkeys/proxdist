@@ -30,7 +30,7 @@ function test_lp()
     # would normally use
     # > blas_set_num_threads(NUM_CORES)
     # but to ensure best BLAS performance use one thread per core
-    blas_set_num_threads(nthreads)
+    BLAS.set_num_threads(nthreads)
 
     # how many dimensions should we test?
     # N.B. code assumes that max_sparse_dim >= max_dense_dim

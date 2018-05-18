@@ -31,7 +31,7 @@ function test_nqp()
     # per Julia GitHub issue #6293, BLAS is not tuned for hyperthreading
     # use one thread per core
 #    blas_set_num_threads(NUM_CORES)
-    blas_set_num_threads(nthreads)
+    BLAS.set_num_threads(nthreads)
 
     # IPOPT and Gurobi parameters
     ipopt_tol = feastol
