@@ -5,10 +5,15 @@ using Gurobi
 #using ProxOpt
 using IterativeSolvers
 
+# ==============================================================================
+# load projection code
+# ==============================================================================
+include("../projections/project_affine.jl")
+include("../projections/project_nonneg.jl")
 
-###################
-### subroutines ###
-###################
+# ==============================================================================
+# subroutines
+# ==============================================================================
 
 
 # function handle to efficiently compute sparse matrix-vector operation in CG
@@ -38,122 +43,19 @@ function check_conformability(A, b, c)
 	return()
 end
 
-"""
-    project_affine!(x,y,C,d)
-
-Perform the affine projection `x = Cy + d`, overwriting `x`.
-The matrix `C` and the vector `d` are calculated as `C = pinv(A)(A + I)` and `d = pinv(A)*b`,
-where `Ay == b`.
-
-Arguments:
-
--- `x` is the vector to overwrite in the projection.
--- `y` is the vector to project.
--- `C` is the projection matrix.
--- `d` is the affine offset of the projection.
-"""
-function project_affine!(
-    x :: DenseVector{T},
-    y :: DenseVector{T},
-    C :: DenseMatrix{T},
-    d :: DenseVector{T}
-) where {T} <: AbstractFloat
-    BLAS.gemv!('N', one(T), C, y, zero(T), x)
-    BLAS.axpy!(length(x), one(T), d, 1, x, 1)
-end
-
-"""
-    project_affine(v,A,b) -> x, C, d
-
-`project_affine`computes the projection of `v` onto the affine constraints `A*v == b` as
-
-    x = v - pinv(A)*(A*v - b)
-
-To facilitate future projections, `project_affine` returns, in addition to `x`, the matrix `C = I - pinv(A)*A` and `d = pinv(A)*b`.
-"""
-function project_affine(
-    v :: DenseVector{T},
-    A :: DenseMatrix{T},
-    b :: DenseVector{T}
-) where {T} <: AbstractFloat # may need BlasFloat?
-
-    # initialize output vector
-    x = zeros(T, size(v))
-
-    # x = v - pinv(A)*(A*v - b)
-    pA = pinv(A)
-    C  = BLAS.gemm('N', 'N', -1.0, pA, A)
-    C  += I
-    d  = BLAS.gemv('N', 1.0, pA, b)
-
-    # x = C*v + d
-    project_affine!(x,v,C,d)
-
-    # return affine projection with cached projection matrix, vector
-    return x, C, d
+# subroutine to print algorithm progress
+function print_progress(i, loss, daffine, dnonneg, rho, quiet; i_interval::Int = 10)
+    if (i <= i_interval || i % inc_step == 0) && !quiet
+        @printf("%d\t%3.7f\t%3.7f\t%3.7f\t%3.7f\n", i, loss, daffine, dnonneg, rho)
+    end
+    return()
 end
 
 
 
-"""
-    project_affine(v::SparseMatrixCSC, A::SparseMatrixCSC, b::SparseMatrixCSC)
-
-For a sparse matrix `A` and sparse vectors `v` and `b`, `project_affine` computes the projection of `v` onto the affine constraints `A*v == b`.
-"""
-function project_affine(
-    v  :: SparseMatrixCSC{T,Int},
-    A  :: SparseMatrixCSC{T,Int},
-    b  :: SparseMatrixCSC{T,Int},
-    AA :: SparseMatrixCSC{T,Int}
-) where {T} <: AbstractFloat
-    return v + A' * ( AA \ (b - A*v) )
-end
-
-function project_affine(
-    v  :: SparseMatrixCSC{T,Int},
-    A  :: SparseMatrixCSC{T,Int},
-    b  :: SparseMatrixCSC{T,Int}
-)
-	AA = A*A'
-	project_affine(v, A, b, AA)
-end
-
-function project_affine(
-    v    :: SparseMatrixCSC{T,Int},
-    A    :: SparseMatrixCSC{T,Int},
-    b    :: SparseMatrixCSC{T,Int},
-    AA   :: Base.SparseMatrix.CHOLMOD.Factor{T},
-    At   :: SparseMatrixCSC{T,Int},
-) where {T} <: AbstractFloat
-#    return v + A' * ( AA \ (b - A*v) )
-    x = b - A*v
-    x = AA \ x
-    y = At * x
-    y = y + v
-    return y
-end
-
-function project_affine(
-    v  :: SparseMatrixCSC{T,Int},
-    A  :: SparseMatrixCSC{T,Int},
-    b  :: Union{DenseVector{T}, SparseMatrixCSC{T,Int}},
-    AA :: Base.SparseMatrix.CHOLMOD.Factor{T} 
-) where {T} <: AbstractFloat
-    C = I - (A' * ( AA \ A)) 
-    d = A' * (AA \ b)
-	# try caching b as last column, computing AA \ [A b], and then recovering d = A'(AA\b) 
-    return C*v + d, C, d 
-end
-
-function project_nonneg!(x :: AbstractVector{T}, y :: AbstractVector{T}) where {T} <: AbstractFloat
-	y .= max.(x, 0)
-	return y
-end
-
-
-######################
-### main functions ###
-######################
+# ==============================================================================
+# main functions
+# ==============================================================================
 
 """
     lin_prog(A,b,c)
@@ -220,9 +122,7 @@ function lin_prog2(
         dnonneg = euclidean(z, z_max)
 
         # print progress of algorithm
-        if (i <= 10 || i % inc_step == 0) && !quiet
-            @printf("%d\t%3.7f\t%3.7f\t%3.7f\t%3.7f\n", i, loss, daffine, dnonneg, rho)
-        end
+        print_progress(i, loss, daffine, dnonneg, rho, quiet, i_interval = 10)
 
         # prox dist update y = 0.5*(z_max + z_affine) - c/rho
         y .= HALF .* z_max .+ HALF .* z_affine .- ρ_inv .* c
@@ -319,9 +219,7 @@ function lin_prog(
         dnonneg = euclidean(y,z_max)
 
         # print progress of algorithm
-        if (i <= 10 || i % inc_step == 0) && !quiet
-            @printf("%d\t%3.7f\t%3.7f\t%3.7f\n", i, loss, dnonneg, rho)
-        end
+        print_progress(i, loss, daffine, dnonneg, rho, quiet, i_interval = 10)
 
         # prox dist update
         copy!(y2, z_max)
@@ -412,9 +310,7 @@ function lin_prog2(
         dnonneg = euclidean(z,z_max)
 
         # print progress of algorithm
-        if (i <= 10 || i % inc_step == 0) && !quiet
-            @printf("%d\t%3.7f\t%3.7f\t%3.7f\n", i, loss, dnonneg, rho)
-        end
+        print_progress(i, loss, daffine, dnonneg, rho, quiet, i_interval = 10)
 
         isfinite(loss) || throw(error("Loss is not finite after $i iterations, something is wrong..."))
 
@@ -510,9 +406,7 @@ function lin_prog(
         i > 1 && project_nonneg!(z_max, z)
 
         # print progress of algorithm
-        if (i <= 10 || i % inc_step == 0) && !quiet
-            @printf("%d\t%3.7f\t%3.7f\t%3.7f\n", i, loss, dnonneg, rho)
-        end
+        print_progress(i, loss, daffine, dnonneg, rho, quiet, i_interval = 10)
 
         isfinite(loss) || throw(error("Loss is not finite after $i iterations, something is wrong..."))
 
@@ -618,9 +512,7 @@ end
 #        dnonneg = norm(z - z_max)
 #
 #        # print progress of algorithm
-#        if (i <= 10 || i % inc_step == 0) && !quiet
-#            @printf("%d\t%3.7f\t%3.7f\t%3.7f\t%3.7f\n", i, loss, daffine, dnonneg, rho)
-#        end
+#        print_progress(i, loss, daffine, dnonneg, rho, quiet, i_interval = 10)
 #
 #        # prox dist update y = 0.5*(z_max + z_affine) - c/rho
 ##        axbycz!(y, 0.5, z_max, 0.5, z_affine, -invrho, c)
@@ -830,9 +722,9 @@ function lp_gurobi(
     return z
 end
 
-####################
-### testing code ###
-####################
+# ==============================================================================
+# testing code
+# ==============================================================================
 
 function test_dense_lp(;
     quiet :: Bool = true
