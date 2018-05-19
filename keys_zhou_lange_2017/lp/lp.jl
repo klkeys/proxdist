@@ -100,9 +100,9 @@ function lin_prog2(
     TWO     = one(T) + one(T)
     
     # initialize temporary arrays
-    x = zeros(T,q)
-    y = zeros(T,q)
-    z = zeros(T,q)
+    x = zeros(T, q)
+    y = zeros(T, q)
+    z = zeros(T, q)
 
     # apply initial projections
     z_affine, C, d = project_affine(z,A,b)
@@ -160,7 +160,7 @@ end
 
 Solve the optimization problem
 
-    minimize dot(x,c) + λ(Ax - b)
+    minimize dot(x,c) + λ'(Ax - b)
              x   >= 0
 
 with an accelerated proximal distance algorithm. Here the affine constraints of the linear program are moved into the objective function.
@@ -189,10 +189,10 @@ function lin_prog(
 
 	# initialize temporary arrays
     q  = size(A,2)
-    x  = zeros(T,q)
-    y  = zeros(T,q)
-    y2 = zeros(T,q)
-    z  = zeros(T,q)
+    x  = zeros(T, q)
+    y  = zeros(T, q)
+    y2 = zeros(T, q)
+    z  = zeros(T, q)
 
     # initialize algorithm parameters
     iter    = 0
@@ -205,7 +205,7 @@ function lin_prog(
 	# perform initial affine projection
     pA = pinv(A)
     C  = BLAS.gemm('N', 'N', -one(T), pA, A)
-    C  += I
+    C  += I.λ
     d  = BLAS.gemv('N', one(T), pA, b)
     z_max = max.(z, zero(T))
 
