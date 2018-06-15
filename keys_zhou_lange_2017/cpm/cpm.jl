@@ -1,8 +1,8 @@
 """
     sphere_orthant_projection(y)
-"""
 This function projects the point y onto the intersection of the unit sphere and the nonnegative orthant.
-function sphere_orthant_projection(y::Vector{T}) where {T} = Float64
+"""
+function sphere_orthant_projection(y::Vector{T}) where {T <: AbstractFloat} 
    i = indmax(y)
    if y[i] <= 0 
       x    = zeros(y)
@@ -24,7 +24,7 @@ end
 
 This function solves the equation `(ρ I + M) * x = y` by Jacobi's method.
 """
-function jacobi_solve(M::Matrix{T}, y::Vector{T}, ρ::T; max_iter::Int = 100) where {T} = Float64
+function jacobi_solve(M::Matrix{T}, y::Vector{T}, ρ::T; max_iter::Int = 100) where {T <: AbstractFloat} 
   x = zeros(length(y))
   z = zeros(length(y))
   for i = 1:max_iter
@@ -47,7 +47,7 @@ This function find the minimum point of the quadratic form
 over the set of unit vectors with nonnegative components.
 This version uses the distance squared penalty in the proximal distance method. 
 """
-function copositivity(M::Matrix{T}) where {T} = Float64
+function copositivity(M::Matrix{T}) where {T <: AbstractFloat}
 
     # Initialize control constants.
     ρ        = one(T) 
@@ -55,6 +55,7 @@ function copositivity(M::Matrix{T}) where {T} = Float64
     ρ_max    = 2^22
     max_iter = 5000
     iters    = 0
+    quiet    = true 
 
     # Find the eigen-decomposition of M.
     (d,V) = eig(M)
@@ -75,7 +76,7 @@ function copositivity(M::Matrix{T}) where {T} = Float64
         dist = norm(x-px)
         
         if n < 10 || n % 100 == 0
-            println(n,"  &   ",loss,"   &  ",dist," & ",ρ)
+            quiet || println(n,"  &   ",loss,"   &  ",dist," & ",ρ)
         end
 
         # Calculate the proximal distance update.
@@ -107,13 +108,14 @@ This function find the minimum point of the quadratic form
 over the set of unit vectors with nonnegative components.
 This version uses the distance squared penalty in the proximal distance method. 
 """
-function accelerated_copositivity(M::Matrix{T}) where {T} = Float64
+function accelerated_copositivity(M::Matrix{T}) where {T <: AbstractFloat}
 
     # Initialize control constants.
     ρ        = zero(T) 
     ρ_max    = 2^22
     max_iter = 5000
     iters    = 0
+    quiet    = true
 
     # Find the eigen-decomposition of M.
     (d,V) = eig(M)
@@ -137,7 +139,7 @@ function accelerated_copositivity(M::Matrix{T}) where {T} = Float64
         pz   = sphere_orthant_projection(z)  
         dist = norm(z-pz)
         if n <= 10 || n % 100 == 0
-            println(n,"  &   ",loss,"  & ",dist,"  &  ",ρ)
+            quiet || println(n,"  &   ",loss,"  & ",dist,"  &  ",ρ)
         end
 
         # Calculate the proximal distance update.
