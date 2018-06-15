@@ -1,8 +1,6 @@
 using Distances
-using RegressionTools
 using JuMP
 using Gurobi
-#using ProxOpt
 using IterativeSolvers
 using LinearMaps
 
@@ -15,7 +13,7 @@ include("../projections/project_nonneg.jl")
 # ==============================================================================
 # subroutines
 # ==============================================================================
-
+include("../common/common.jl")
 
 # function handle to efficiently compute sparse matrix-vector operation in CG
 function mulbyA!(output, v, A, At, v2)
@@ -23,37 +21,14 @@ function mulbyA!(output, v, A, At, v2)
     A_mul_B!(output, A, v2)
 end
 
-# function to compute a Nesterov acceleration step at iteration i
-function compute_accelerated_step!(z::DenseVector{T}, x::DenseVector{T}, y::DenseVector{T}, i::Int) where {T <: AbstractFloat}
-	kx = (i - one(T)) / (i + one(T) + one(T))
-	ky = one(T) + kx
 
-	# z = ky*y - kx*x
-	z .= ky .* y .- kx .* x 
-	copy!(x,y)
-end
-
-# subroutine to check conformability of linear program inputs
-# if one of the vectors is nonconformable to the matrix, then throw an error
-function check_conformability(A, b, c)
-    p = length(b)
-    q = length(c)
-    @assert (p,q) == size(A) "nonconformable A, b, and c\nsize(A) = $(size(A))\nsize(b) = $(size(b))\nsize(c) = $(size(c))"
-end
-
-# subroutine to print algorithm progress
-function print_progress(i, loss, daffine, dnonneg, rho, quiet; i_interval::Int = 10, inc_step::Int = 100)
-    if (i <= i_interval || i % inc_step == 0) && !quiet
-        @printf("%d\t%3.7f\t%3.7f\t%3.7f\t%3.7f\n", i, loss, daffine, dnonneg, rho)
+# function to compute in-place the maximum of each element of a vector x against a bitstype-matched number a
+function max!(x::DenseVector{T}, a::T = zero(T)) where {T <: AbstractFloat}
+    for i in eachindex(x)
+        x[i] = x[i] >= a ? x[i] : a
     end
+    return x
 end
-
-function print_progress(i, loss, dnonneg, rho, quiet; i_interval::Int = 10, inc_step::Int = 100)
-    if (i <= i_interval || i % inc_step == 0) && !quiet
-        @printf("%d\t%3.7f\t%3.7f\t%3.7f\n", i, loss, dnonneg, rho)
-    end
-end
-
 
 
 # ==============================================================================
@@ -88,30 +63,35 @@ function lin_prog2(
 
     # error checking
 	check_conformability(A, b, c)
+    @assert rho >  zero(T) "Argument rho must be positive"
 
     # declare algorithm variables
-    iter    = 0
-    loss    = dot(c,x)
-    loss0   = Inf
-    daffine = Inf
-    dnonneg = Inf
-    ρ_inv   = one(T) / rho
-    HALF    = one(T) / 2
-    TWO     = one(T) + one(T)
+    loss0     = Inf
+    daffine   = Inf
+    daffine0  = Inf
+    dnonneg   = Inf
+    dnonneg0  = Inf
+    ρ_inv     = one(T) / rho
+    HALF      = one(T) / 2
+    converged = false
+    stuck     = false
     
     # initialize temporary arrays
+    p,q = size(A)
     x = zeros(T, q)
     y = zeros(T, q)
     z = zeros(T, q)
 
     # apply initial projections
     z_affine, C, d = project_affine(z,A,b)
-    z_max = max(z, 0) 
+    z_max = max.(z, 0) 
+
+    # compute initial loss
+    loss = dot(c,x)
 
     # main loop
+    i = 0
     for i = 1:max_iter
-
-        iter += 1
 
         # compute accelerated step z = y + (i - 1)/(i + 2)*(y - x)
 		compute_accelerated_step!(z, x, y, i)
@@ -124,25 +104,32 @@ function lin_prog2(
         daffine = euclidean(z, z_affine)
         dnonneg = euclidean(z, z_max)
 
-        # print progress of algorithm
-        print_progress(i, loss, daffine, dnonneg, rho, quiet, i_interval = 10, inc_step = inc_step)
-
         # prox dist update y = 0.5*(z_max + z_affine) - c/rho
-        y .= HALF .* z_max .+ HALF .* z_affine .- ρ_inv .* c
+        y   .= HALF .* z_max .+ HALF .* z_affine .- ρ_inv .* c
+        loss = dot(c,y)
+
+        # print progress of algorithm
+        quiet || print_progress(i, loss, daffine, dnonneg, rho, i_interval = 10, inc_step = inc_step)
 
         # convergence checks
-        loss        = dot(c,y)
         nonneg      = dnonneg < nnegtol
+        diffnonneg  = abs(dnonneg - dnonneg0)
         affine      = daffine < afftol
+        diffaffine  = abs(daffine - daffine0)
         the_norm    = euclidean(x,y)
         scaled_norm = the_norm / (norm(x,2) + one(T))
         converged   = scaled_norm < tol && nonneg && affine
+        stuck       = !converged && (scaled_norm < tol) && (diffnonneg < tol) && (diffaffine < tol)
 
         # if converged then break, else save loss and continue
-        converged && break
+        if converged || (stuck && rho >= rho_max)
+            quiet || print_progress(i, loss, dnonneg, rho, i_interval = max_iter, inc_step = inc_step)
+            break
+        end
         loss0 = loss
 
-        if i % inc_step == 0
+        # update penalty constant if necessary
+        if i % inc_step == 0 || diffnonneg < tol || diffaffine < tol || stuck
             rho    = min(rho_inc*rho, rho_max)
             ρ_inv = one(T) / rho
             copy!(x,y)
@@ -151,7 +138,7 @@ function lin_prog2(
 
     # threshold small elements of y before returning
     threshold!(y,tol)
-    return Dict{String, Any}("obj" => loss, "iter" => iter, "x" => copy(y), "affine_dist" => daffine, "nonneg_dist" => dnonneg)
+    return Dict{String, Any}("obj" => loss, "iter" => i, "x" => copy(y), "nonneg_dist" => dnonneg, "affine_dist" => daffine, "converged" => converged, "stuck" => stuck)
 end
 
 
@@ -174,7 +161,7 @@ function lin_prog(
     b        :: DenseVector{T},
     c        :: DenseVector{T};
     rho      :: T    = one(T),
-    rho_inc  :: T    = 2.0,
+    rho_inc  :: T    = one(T) + one(T),
     rho_max  :: T    = 1e15,
     max_iter :: Int  = 10000,
     inc_step :: Int  = 100,
@@ -186,6 +173,7 @@ function lin_prog(
 
     # error checking
 	check_conformability(A, b, c)
+    @assert rho >  zero(T) "Argument rho must be positive"
 
 	# initialize temporary arrays
     q  = size(A,2)
@@ -195,23 +183,20 @@ function lin_prog(
     z  = zeros(T, q)
 
     # initialize algorithm parameters
-    iter    = 0
-    loss    = dot(c,x)
-    loss0   = Inf
-    daffine = Inf
-    dnonneg = Inf
-    ρ_inv   = one(T) / rho
+    i         = 0
+    loss      = dot(c,x)
+    loss0     = Inf
+    dnonneg   = Inf
+    dnonneg0  = Inf
+    ρ_inv     = one(T) / rho
+    converged = false
+    stuck     = false
 
 	# perform initial affine projection
-    pA = pinv(A)
-    C  = BLAS.gemm('N', 'N', -one(T), pA, A)
-    C  += I.λ
-    d  = BLAS.gemv('N', one(T), pA, b)
-    z_max = max.(z, zero(T))
+    z_affine, C, d = project_affine(x, A, b)
+    z_max = max.(z, 0)
 
     for i = 1:max_iter
-
-        iter += 1
 
         # compute accelerated step z = y + (i - 1)/(i + 2)*(y - x)
 		compute_accelerated_step!(z, x, y, i)
@@ -220,11 +205,10 @@ function lin_prog(
         i > 1 && project_nonneg!(z_max, z)
 
         # compute distances to constraint sets
-#        dnonneg = euclidean(z,z_max)
         dnonneg = euclidean(y,z_max)
 
         # print progress of algorithm
-        print_progress(i, loss, daffine, dnonneg, rho, quiet, i_interval = 10, inc_step = inc_step)
+        quiet || print_progress(i, loss, dnonneg, rho, i_interval = 10, inc_step = inc_step)
 
         # prox dist update
         copy!(y2, z_max)
@@ -235,15 +219,20 @@ function lin_prog(
         # convergence checks
         loss        = dot(c,y)
         nonneg      = dnonneg < nnegtol
+        diffnonneg  = abs(dnonneg - dnonneg0)
         the_norm    = euclidean(x,y)
         scaled_norm = the_norm / (norm(x,2) + one(T))
         converged   = scaled_norm < tol && nonneg
+        stuck       = !converged && (scaled_norm < tol) && (diffnonneg < nnegtol)
 
         # if converged then break, else save loss and continue
-        converged && break
+        if converged || (stuck && rho >= rho_max)
+            quiet || print_progress(i, loss, dnonneg, rho, i_interval = max_iter, inc_step = inc_step)
+            break
+        end
         loss0 = loss
 
-        if i % inc_step == 0
+        if i % inc_step == 0 || diffnonneg < nnegtol || stuck
             rho   = min(rho_inc*rho, rho_max)
             ρ_inv = one(T) / rho
             copy!(x,y)
@@ -252,7 +241,7 @@ function lin_prog(
 
     # threshold small elements of y before returning
     threshold!(y,tol)
-    return Dict{String, Any}("obj" => loss, "iter" => iter, "x" => copy(y), "nonneg_dist" => dnonneg)
+    return Dict{String, Any}("obj" => loss, "iter" => i, "x" => copy(y), "nonneg_dist" => dnonneg, "converged" => converged, "stuck" => stuck)
 end
 
 """
@@ -270,39 +259,44 @@ function lin_prog2(
     A        :: SparseMatrixCSC{T,Int},
     b        :: DenseVector{T},
     c        :: DenseVector{T};
-    rho      :: T = one(T),
-    rho_inc  :: T = 2.0,
-    rho_max  :: T = 1e15,
-    max_iter :: Int     = 10000,
-    inc_step :: Int     = 100,
-    tol      :: T = 1e-6,
-    afftol   :: T = 1e-6,
-    nnegtol  :: T = 1e-6,
-    quiet    :: Bool    = true,
+    rho      :: T    = one(T),
+    rho_inc  :: T    = one(T) + one(T),
+    rho_max  :: T    = 1e30,
+    max_iter :: Int  = 10000,
+    inc_step :: Int  = 100,
+    tol      :: T    = 1e-6,
+    afftol   :: T    = 1e-6,
+    nnegtol  :: T    = 1e-6,
+    quiet    :: Bool = true,
 ) where {T <: AbstractFloat}
 
     # error checking
 	check_conformability(A, b, c)
+    @assert rho >  zero(T) "Argument rho must be positive"
 
-    iter    = 0
-    loss0   = Inf
-    dnonneg = Inf
+    # initialize return values 
+    i         = 0
+    loss      = Inf
+    loss0     = Inf
+    dnonneg   = Inf
+    dnonneg0  = Inf
+    converged = false
+    stuck     = false
+
+    # initialize arrays and algorithm variables
     ρ_inv  = one(T) / rho
-    At      = A'
-    AA      = cholfact(A * At)
+    At     = A'
+    AA     = cholfact(A * At)
 #    AA      = factorize(A * At)
-
+    (p,q) = size(A)
     x     = zeros(T, q)
     y     = zeros(T, q)
     y2    = zeros(T, q)
     z     = zeros(T, q)
-    z_max = max.(y, zero(T))
+    z_max = max.(y, 0) 
     C     = full(I - (At * ( AA \ A)))
     d     = vec(full(At * (AA \ b)))
 
-    loss = dot(c,x)
-
-    i = 0
     for i = 1:max_iter
 
         # compute accelerated step z = y + (i - 1)/(i + 2)*(y - x)
@@ -312,31 +306,38 @@ function lin_prog2(
         i > 1 && project_nonneg!(z_max, z)
 
         # compute distances to constraint sets
-        dnonneg = euclidean(z,z_max)
+        dnonneg0 = dnonneg
+        dnonneg  = euclidean(z,z_max)
 
         # print progress of algorithm
-        print_progress(i, loss, daffine, dnonneg, rho, quiet, i_interval = 10, inc_step = inc_step)
+        quiet || print_progress(i, loss, dnonneg, rho, i_interval = 10, inc_step = inc_step)
 
-        isfinite(loss) || throw(error("Loss is not finite after $i iterations, something is wrong..."))
 
         # prox dist update y = C*(z_max - ρ_inv*c) + d
         copy!(y2,z_max)
         BLAS.axpy!(q, -ρ_inv, c, 1, y2, 1)
         copy!(y,d)
         BLAS.symv!('u', one(T), C, y2, one(T), y)
+        loss        = dot(c,y)
+        @assert isfinite(loss) "Loss is not finite after $i iterations, something is wrong..."
 
         # convergence checks
-        loss        = dot(c,y)
         nonneg      = dnonneg < nnegtol
+        diffnonneg  = abs(dnonneg - dnonneg0)
         the_norm    = euclidean(x,y)
         scaled_norm = the_norm / (norm(x,2) + one(T))
         converged   = scaled_norm < tol && nonneg
+        stuck       = !converged && (scaled_norm < tol) && (diffnonneg < tol)
 
         # if converged then break, else save loss and continue
-        converged && break
+        # also abort if the algo gets stuck
+        if converged || (stuck && rho >= rho_max)
+            quiet || print_progress(i, loss, dnonneg, rho, i_interval = 10, inc_step = inc_step)
+            break
+        end
         loss0 = loss
 
-        if i % inc_step == 0
+        if i % inc_step == 0 || diffnonneg < nnegtol || stuck
             rho   = min(rho_inc*rho, rho_max)
             ρ_inv = one(T) / rho
             copy!(x,y)
@@ -345,7 +346,7 @@ function lin_prog2(
 
     # threshold small elements of y before returning
     threshold!(y,tol)
-    return Dict{String, Any}("obj" => loss, "iter" => i, "x" => sparsevec(y), "nonneg_dist" => dnonneg)
+    return Dict{String, Any}("obj" => loss, "iter" => i, "x" => copy(y), "nonneg_dist" => dnonneg, "converged" => converged, "stuck" => stuck)
 end
 
 """
@@ -364,7 +365,7 @@ function lin_prog(
     b        :: DenseVector{T},
     c        :: DenseVector{T};
     rho      :: T    = 1e-2,
-    rho_inc  :: T    = 2.0,
+    rho_inc  :: T    = one(T) + one(T),
     rho_max  :: T    = 1e30,
     max_iter :: Int  = 10000,
     inc_step :: Int  = 5,
@@ -376,10 +377,19 @@ function lin_prog(
 
     # error checking
 	check_conformability(A, b, c)
+    @assert rho >  zero(T) "Argument rho must be positive"
 
-    iter    = 0
-    loss0   = Inf
-    dnonneg = Inf
+
+    # initialize return values 
+    i         = 0
+    loss      = Inf
+    loss0     = Inf
+    dnonneg   = Inf
+    dnonneg0  = Inf
+    converged = false
+    stuck     = false
+
+    # initialize arrays and algorithm variables
     invrho  = one(T) / rho
     At      = A'
 
@@ -398,13 +408,11 @@ function lin_prog(
     loss = dot(c,x)
 
     # compute the shift: A' * (A * A') \ b using CG
-    #Afun = MatrixFcn{T}(p, p, (output, v) -> mulbyA!(output, v, A, At, v2))
     f(output, v) = mulbyA!(output, v, A, At, v2)
     Afun = LinearMap{T}(f, p, p, ismutating = true) 
     cg!(yp, Afun, b, maxiter=200, tol=1e-8)
     shift .= At * yp
 
-    i = 0
     for i = 1:max_iter
 
 
@@ -415,9 +423,11 @@ function lin_prog(
         i > 1 && project_nonneg!(z_max, z)
 
         # print progress of algorithm
-        print_progress(i, loss, dnonneg, rho, quiet, i_interval = 10, inc_step = inc_step)
+        quiet || print_progress(i, loss, dnonneg, rho, i_interval = 10, inc_step = inc_step)
 
-        isfinite(loss) || throw(error("Loss is not finite after $i iterations, something is wrong..."))
+        # check that loss is still finite
+        # in contrary case, throw error
+        @assert isfinite(loss) "Loss is no longer finite after $i iterations, something is wrong..."
 
         ### LSQR solve ###
         copy!(yq, z_max)
@@ -428,21 +438,30 @@ function lin_prog(
         BLAS.axpy!(one(T), yq, y)
         BLAS.axpy!(-one(T), z, y)
 
+        # recompute loss
+        loss = dot(c,y)
+
         # compute distances to constraint sets
-        dnonneg = euclidean(y,z_max)
+        dnonneg0 = dnonneg
+        dnonneg  = euclidean(y,z_max)
 
         # convergence checks
-        loss        = dot(c,y)
         nonneg      = dnonneg < nnegtol
+        diffnonneg  = abs(dnonneg - dnonneg0) / abs(dnonneg0)
         the_norm    = euclidean(x,y)
-        scaled_norm = the_norm / (norm(x,2) + one(T))
-        converged   = scaled_norm < tol && nonneg
+        scaled_norm = the_norm / (norm(x) + one(T))
+        converged   = (scaled_norm < tol) && nonneg
+        stuck       = !converged && (scaled_norm < tol) && (diffnonneg < tol)
 
         # if converged then break, else save loss and continue
-        converged && break
+        # also abort if the algo gets stuck
+        if converged || (stuck && rho >= rho_max)
+            quiet || print_progress(i, loss, dnonneg, rho, i_interval = 10, inc_step = inc_step)
+            break
+        end
         loss0 = loss
 
-        if i % inc_step == 0
+        if i % inc_step == 0 || diffnonneg < nnegtol || stuck
             rho    = min(rho_inc*rho, rho_max)
             invrho = one(T) / rho
             copy!(x,y)
@@ -451,5 +470,100 @@ function lin_prog(
 
     # threshold small elements of y before returning
     threshold!(y,tol)
-    return Dict{String, Any}("obj" => loss, "iter" => i, "x" => sparsevec(y), "nonneg_dist" => dnonneg)
+    return Dict{String, Any}("obj" => loss, "iter" => i, "x" => copy(y), "nonneg_dist" => dnonneg, "converged" => converged, "stuck" => stuck)
+end
+
+ 
+"""
+    lin_prog3(A, b, c)
+
+For dense matrix `A` and dense vectors `b` and `c`, solve the optimization problem
+
+    minimize dot(x,c)
+    s.t.     A*x == b
+             x   >= 0
+
+with an accelerated proximal distance algorithm. The nonnegative constraint `x >= 0` is folded into the function domain.
+`lin_prog3` enforces the affine constraint `A*x == b` with a standard affine projection.
+"""
+function lin_prog3(
+	A        :: DenseMatrix{T},
+	b        :: DenseVector{T},
+	c        :: DenseVector{T};
+    rho      :: T    = one(T),
+    rho_inc  :: T    = one(T) + one(T),
+    rho_max  :: T    = 1e30,
+    max_iter :: Int  = 10000,
+    inc_step :: Int  = 100,
+    tol      :: T    = 1e-6,
+    afftol   :: T    = 1e-6,
+    quiet    :: Bool = true,
+) where {T <: AbstractFloat} 
+
+    # error checking
+	check_conformability(A, b, c)
+    @assert rho >  zero(T) "Argument rho must be positive"
+
+    # initialize return values
+    i         = 0
+    loss      = Inf
+    loss0     = Inf
+    daffine   = Inf
+    daffine   = Inf
+    converged = false
+    stuck     = false
+
+    # initialize arrays and algorithm variables
+    ρ_inv   = one(T) / rho
+	(p,q)   = size(A)
+	x       = zeros(q)
+	y       = zeros(q)
+	z       = zeros(q)
+
+	# compute initial affine projection
+    z_affine, C, d = project_affine(z,A,b)
+
+	for i = 1:max_iter
+		
+        # compute accelerated step z = y + (i - 1)/(i + 2)*(y - x)
+		compute_accelerated_step!(z, x, y, i)
+
+		# project onto the constraint set
+        i > 1 && project_affine!(z_affine, z, C, d)
+        daffine0 = daffine
+		daffine  = euclidean(z, z_affine) 
+
+		# calculate the proximal distance update
+		y .= max.(z_affine .- ρ_inv .* c , 0)
+        loss = dot(c,y)
+
+        # print progress of algorithm
+        quiet || print_progress(i, loss, daffine, rho, i_interval = 10, inc_step = inc_step)
+
+		# check for convergence
+        affine      = daffine < afftol 
+        diffaffine  = abs(daffine - daffine0)
+        the_norm    = euclidean(x,y)
+        scaled_norm = the_norm / (norm(x) + one(T))
+        converged   = (scaled_norm < tol) && affine 
+        stuck       = !converged && (scaled_norm < tol) && (diffaffine < tol)
+
+        # if converged then break, else save loss and continue
+        # also abort if the algo gets stuck
+        if converged || (stuck && rho >= rho_max)
+            quiet || print_progress(i, loss, daffine, rho, i_interval = max_iter, inc_step = inc_step)
+            break
+        end
+        loss0 = loss
+
+        if i % inc_step == 0 || diffaffine < afftol || stuck
+            # update penalty constant
+			rho = min(rho_inc * rho, rho_max)
+			ρ_inv = one(T) / rho 
+			copy!(x,y)
+		end 
+	end 
+
+    threshold!(y, tol)
+    return Dict{String, Any}("obj" => loss, "iter" => i, "x" => copy(y), "affine_dist" => daffine, "converged" => converged, "stuck" => stuck)
 end

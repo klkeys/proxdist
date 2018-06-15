@@ -36,7 +36,7 @@ function test_lp()
     # N.B. code assumes that max_sparse_dim >= max_dense_dim
     max_dense_dim  = 9
     max_sparse_dim = 13
-    max_dense_dim <= max_sparse_dim || throw(ArgumentError("max_dense_dim cannot exceed max_sparse_dim"))
+    @assert max_dense_dim <= max_sparse_dim  "max_dense_dim cannot exceed max_sparse_dim"
 
     # SPS parameters
     max_iters = max_iter
@@ -63,7 +63,8 @@ function test_lp()
     b            = A*v
     rho_inc      = rho_inc_d
     output       = lin_prog(A,b,c, inc_step=inc_step, rho_inc=rho_inc, rho_max=rho_max, quiet=quiet, tol=tol, max_iter=max_iter)
-#    output       = lin_prog2(A,b,c, inc_step=inc_step, rho_inc=rho_inc, rho_max=rho_max, quiet=quiet, tol=tol, max_iter=max_iter)
+    output2      = lin_prog2(A,b,c, inc_step=inc_step, rho_inc=rho_inc, rho_max=rho_max, quiet=quiet, tol=tol, max_iter=max_iter)
+    output3      = lin_prog3(A,b,c, inc_step=inc_step, rho_inc=rho_inc, rho_max=rho_max, quiet=quiet, tol=tol, max_iter=max_iter)
     scs_model    = linprog(c, A, '=', b, 0.0, Inf, scs_solver)
     gurobi_model = linprog(c, A, '=', b, 0.0, Inf, gurobi_solver)
 
@@ -74,7 +75,8 @@ function test_lp()
     b             = vec(full(A*x))
     rho_inc       = rho_inc_s
     output        = lin_prog(A,b,c, inc_step=inc_step, rho_inc=rho_inc, rho_max=rho_max, quiet=quiet, tol=tol, max_iter=max_iter)
-#    output        = lin_prog2(A,b,c, inc_step=inc_step, rho_inc=rho_inc, rho_max=rho_max, quiet=quiet, tol=tol, max_iter=max_iter)
+    output        = lin_prog2(A,b,c, inc_step=inc_step, rho_inc=rho_inc, rho_max=rho_max, quiet=quiet, tol=tol, max_iter=max_iter)
+    output        = lin_prog3(A,b,c, inc_step=inc_step, rho_inc=rho_inc, rho_max=rho_max, quiet=quiet, tol=tol, max_iter=max_iter)
     scs_model     = linprog(c, A, '=', b, 0.0, Inf, scs_solver)
     gurobi_model  = linprog(c, A, '=', b, 0.0, Inf, gurobi_solver)
 
@@ -95,6 +97,7 @@ function test_lp()
     # test all dims
     # after max_dense_dims, switch to sparse problems
     for k = 1:max_sparse_dim
+    #for k = 1:max_dense_dim
 
         # problem dimensions
         m = 2^k
@@ -120,8 +123,16 @@ function test_lp()
         # run using proximal distance algorithm
         tic()
         output = lin_prog(A,b,c, inc_step=inc_step, rho_inc=rho_inc, rho_max=rho_max, quiet=quiet, tol=tol, max_iter=max_iter)
-#        output = lin_prog2(A,b,c, inc_step=inc_step, rho_inc=rho_inc, rho_max=rho_max, quiet=quiet, tol=tol, max_iter=max_iter)
         mm_time = toq()
+        gc()
+        tic()
+        output2 = lin_prog2(A,b,c, inc_step=inc_step, rho_inc=rho_inc, rho_max=rho_max, quiet=quiet, tol=tol, max_iter=max_iter)
+        mm_time2 = toq()
+        gc()
+        tic()
+        output3 = lin_prog3(A,b,c, inc_step=inc_step, rho_inc=rho_inc, rho_max=rho_max, quiet=quiet, tol=tol, max_iter=max_iter)
+        mm_time3 = toq()
+        gc()
 
         # run with SCS
         tic()
@@ -134,7 +145,8 @@ function test_lp()
         gurobi_time   = toq()
 
         # print line of table
-        @printf("\t\t%d & %d & %3.4f & %3.4f & %3.4f & %3.4f & %3.4f & %3.4f \\\\\n", m, n, output["obj"], scs_model.objval, gurobi_model.objval, mm_time, scs_time, gurobi_time)
+        #@printf("\t\t%d & %d & %3.4f & %3.4f & %3.4f & %3.4f & %3.4f & %3.4f \\\\\n", m, n, output["obj"], scs_model.objval, gurobi_model.objval, mm_time, scs_time, gurobi_time)
+        @printf("\t\t%d & %d & %3.4f & %3.4f & %3.4f & %3.4f & %3.4f & %3.4f & %3.4f & %3.4f & %3.4f & %3.4f \\\\\n", m, n, output["obj"], output2["obj"], output3["obj"], scs_model.objval, gurobi_model.objval, mm_time, mm_time2, mm_time3, scs_time, gurobi_time)
 
     end
 
