@@ -19,7 +19,7 @@ function project_affine!(
     d :: DenseVector{T}
 ) where {T <: AbstractFloat}
     BLAS.gemv!('N', one(T), C, y, zero(T), x)
-    BLAS.axpy!(length(x), one(T), d, 1, x, 1)
+    BLAS.axpy!(one(T), d, x)
 end
 
 """
@@ -44,7 +44,7 @@ function project_affine(
     pA = pinv(A)
     C  = BLAS.gemm('N', 'N', -one(T), pA, A)
     C  += I
-    d  = BLAS.gemv('N', one(T), pA, b)
+    d  = BLAS.gemv('N', pA, b)
 
     # x = C*v + d
     project_affine!(x,v,C,d)

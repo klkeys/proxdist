@@ -15,11 +15,10 @@ function test_nqp()
     inc_step_s = 100 
     rho_inc_d  = 1.5 
     rho_inc_s  = 1.5 
-    rho_d      = 1.0
+    rho_d      = 1e-2
     rho_s      = 1e-4
-#    rho_s      = 1.0
     rho_max    = 1e30
-    pd_tol     = 1e-6 # added to diagonal of A to ensure pos definiteness, i.e. A = AA'*AA + pd_tol*I
+    pd_tol     = 1e-4 # added to diagonal of A to ensure pos definiteness, i.e. A = AA'*AA + pd_tol*I
     opttol     = 1e-4 # gurobi tolerance for optimum
     feastol    = 1e-4 # Gurobi tolerance for feasibility
     nthreads   = 4
@@ -30,7 +29,6 @@ function test_nqp()
     # testing machine has 4 cores, 8 virtual cores with hyperthreading
     # per Julia GitHub issue #6293, BLAS is not tuned for hyperthreading
     # use one thread per core
-#    blas_set_num_threads(NUM_CORES)
     BLAS.set_num_threads(nthreads)
 
     # IPOPT and Gurobi parameters
@@ -46,8 +44,6 @@ function test_nqp()
     n          = initdim
     inc_step   = inc_step_d
     A          = eye(n)
-#    y          = max(randn(n),0)
-#    b          = -A*y
     b          = randn(n)
     ipopt_A    = spzeros(0,n)
     pd_out     = nqp(A,b,inc_step=inc_step, rho_inc=rho_inc_d, rho_max=rho_max, quiet=quiet, tol=tol, rho=rho_d)
@@ -59,8 +55,6 @@ function test_nqp()
     s          = log10(n) / n 
     A          = speye(n)
     inc_step   = inc_step_s
-#    y          = max(randn(n), 0)
-#    b          = -A*y
     b          = randn(n)
     ipopt_A    = spzeros(0,n)
     pd_out     = nqp(A,b,inc_step=inc_step, rho_inc=rho_inc_s, rho_max=rho_max, quiet=quiet, tol=tol, rho=rho_s)
@@ -97,8 +91,7 @@ function test_nqp()
         if k <= max_dense_dim
             AA       = randn(n,n)
             A        = AA' * AA + pd_tol*I
-            y        = max(randn(n),0)
-#            b        = -A*y
+            y        = max.(randn(n),0)
             b        = randn(n)
             AA       = false
             rho_inc  = rho_inc_d
@@ -109,20 +102,15 @@ function test_nqp()
             AA       = sprandn(n,n,s)
             A        = AA' * AA + pd_tol*I
             AA       = false
-#            y        = max(randn(n),0)
-#            b        = -A*y
             b        = randn(n) 
             rho_inc  = rho_inc_s
             inc_step = inc_step_s
             rho      = rho_s
         end
 
-#        # what is optimal objective value?
-#        optimum = 0.5*dot(y,A*y) + dot(b,y)
-
         # run using proximal distance algorithm
         tic()
-        output = nqp(A,b,inc_step=inc_step, rho_inc=rho_inc, rho_max=rho_max, quiet=quiet, tol=tol, rho=rho, nnegtol=feastol)
+        output = nqp(A,b,inc_step=inc_step, rho_inc=rho_inc, rho_max=rho_max, tol=tol, rho=rho, nnegtol=feastol, quiet=quiet)
         mm_time = toq()
         x = vec(full(output["x"]))
         mm_obj = 0.5*dot(x, A*x) + dot(b,x)
@@ -143,7 +131,6 @@ function test_nqp()
         ipopt_output.status == :Optimal || throw(error("Gurobi solver failed to find optimum and returned status $(gurobi_output.status)"))
        
         # print line of table
-#        @printf("\t\t\t %d & %3.4f & %3.4f & %3.4f & %3.4f & %3.4f & %3.4f & %3.4f\\\\\n", n, optimum, output["obj"], ipopt_output.objval, gurobi_output.objval, mm_time, ipopt_time, gurobi_time)
         @printf("\t\t\t %d & %3.4f & %3.4f & %3.4f & %3.4f & %3.4f & %3.4f\\\\\n", n, mm_obj, ipopt_output.objval, gurobi_output.objval, mm_time, ipopt_time, gurobi_time)
 
     end
