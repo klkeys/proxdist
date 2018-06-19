@@ -1,3 +1,5 @@
+#!/usr/bin/env Rscript --vanilla
+
 ### plot results from SPCA comparison ###
 # There are two plots and three algos to compare
 # "r" refers to the SPC function from the PMA package (see Witten, Tibshirani, and Hastie 2009)

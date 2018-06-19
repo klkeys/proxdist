@@ -1,8 +1,7 @@
 using RCall
 
 # now load our SPCA functions
-#include("spca.jl")
-include("spca_old.jl")
+include("spca.jl")
 
 function compare_spca(proj_type::String = "column")
 
@@ -13,7 +12,6 @@ function compare_spca(proj_type::String = "column")
     tol     = 1e-4    # convergence tolerance
     feastol = 1e-3    # admissible distance to feasibility at convergence 
     quiet   = true    # turn on output? use this for debugging
-    #quiet = false
 
     # comparison parameters
     R = vec([130 133 126 122 162 178 183 172 138 174 193 165 160 403 173 173 166 217 222 185 148 148 196 156 198])
