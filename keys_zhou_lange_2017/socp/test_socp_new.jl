@@ -29,8 +29,7 @@ function test_proj_soc()
     # would normally use
     # > blas_set_num_threads(NUM_CORES)
     # but to ensure best BLAS performance use one thread per core 
-    #blas_set_num_threads(nthreads)
-    BLAS.set_num_threads(nthreads)
+    blas_set_num_threads(nthreads)
 
     # how many dimensions should we test?
     # N.B. code assumes that max_sparse_dim >= max_dense_dim
@@ -67,7 +66,7 @@ function test_proj_soc()
     inc_step = inc_step_d
 
     # run routines on dense problem
-    pw = proj_soc(w,A,b,c,d, inc_step=inc_step, rho_inc=rho_inc, rho_max=rho_max, quiet=quiet, tol=tol, max_iter=2)
+    pw = proj_soc(w,A,b,c,d, inc_step=inc_step, rho_inc=rho_inc, rho_max=rho_max, quiet=quiet, tol=tol, max_iter=max_iter)
     y = Convex.Variable(n)
     scs_model = minimize(0.5*sumsquares(y - w))
     scs_model.constraints += norm(A*x + b) <= dot(c,x) + d
@@ -88,7 +87,7 @@ function test_proj_soc()
     w         = vec(full(sprandn(n,1,s)))
     rho_inc   = rho_inc_s 
     inc_step  = inc_step_s
-    output    = proj_soc(w,A,b,c,d, inc_step=inc_step, rho_inc=rho_inc, rho_max=rho_max, quiet=quiet, tol=tol, max_iter=2)
+    output    = proj_soc(w,A,b,c,d, inc_step=inc_step, rho_inc=rho_inc, rho_max=rho_max, quiet=quiet, tol=tol, max_iter=max_iter)
     y         = Convex.Variable(n)
     scs_model = minimize(0.5*sumsquares(y - w))
     scs_model.constraints += norm(A*y + b) <= vecdot(c,y) + d
