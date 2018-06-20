@@ -1,6 +1,6 @@
-source("ckm.jl")
+include("ckm.jl")
 
-funcion test_ckm()
+function test_ckm()
 
     srand(1237)
     outfile    = "Kin.out"
@@ -53,7 +53,7 @@ funcion test_ckm()
     end
     close(io)
 
-    return()
+    return
 end
 
 test_ckm()

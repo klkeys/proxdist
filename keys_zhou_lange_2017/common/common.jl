@@ -3,7 +3,8 @@
 # ==============================================================================
 
 # function to compute a Nesterov acceleration step at iteration i
-function compute_accelerated_step!(z::DenseVector{T}, x::DenseVector{T}, y::DenseVector{T}, i::Int) where {T <: AbstractFloat}
+#function compute_accelerated_step!(z::DenseVector{T}, x::DenseVector{T}, y::DenseVector{T}, i::Int) where {T <: AbstractFloat}
+function compute_accelerated_step!(z::S, x::S, y::S, i::Int, T::Type) where {S <: AbstractVecOrMat} # key: ensure that z, x, y are of same type
 	kx = (i - one(T)) / (i + one(T) + one(T))
 	ky = one(T) + kx
 
@@ -11,6 +12,8 @@ function compute_accelerated_step!(z::DenseVector{T}, x::DenseVector{T}, y::Dens
 	z .= ky .* y .- kx .* x 
 	copy!(x,y)
 end
+
+compute_accelerated_step!(z::AbstractArray{T}, x::AbstractArray{T}, y::AbstractArray{T}, i::Int) where {T <: AbstractFloat} = compute_accelerated_step!(z, x, y, i, T)
 
 # subroutine to print algorithm progress
 # one variant is for two separate constraint distances
@@ -29,8 +32,8 @@ end
 
 # function to set all elements of a vector x with magnitude smaller than threshold ε to a value α 
 # function for dense vectors is different from function for sparse ones
-function threshold!(x::DenseVector{T}, ε::T, α::T = zero(T)) where {T <: AbstractFloat}
-    @assert ε > α >= 0 "Arguments must satisfy ε > α >= 0"
+function threshold!(x::DenseVecOrMat{T}, ε::T, α::T = zero(T)) where {T <: AbstractFloat}
+    @assert ε >= α >= 0 "Arguments must satisfy ε > α >= 0"
     for i in eachindex(x)
         if abs(x[i]) < ε
             x[i] = α 
@@ -59,4 +62,13 @@ function check_conformability(A::AbstractMatrix{T}, b::AbstractVector{T}) where 
     (m1, m2) = size(A)
     @assert m1 == m2 "Argument A must be a square matrix"
     @assert m1 == n  "Nonconformable A and b\nsize(A) = ($m1,$m2)\nsize(b) = ($n,)\n"
+end
+
+
+# function to compute in-place the maximum of each element of a vector x against a bitstype-matched number a
+function max!(x::Vector{T}, a::T = zero(T)) where {T <: AbstractFloat}
+    for i in eachindex(x)
+        x[i] = x[i] >= a ? x[i] : a
+    end
+    return x
 end

@@ -3,7 +3,7 @@
 
 This function projects the symmetric matrix `Y` onto the closest positive definite matrix.
 """
-function positive_definite_projection(Y::Matrix{Float64})
+function positive_definite_projection(Y::Matrix{T}) where {T <: AbstractFloat}
     (D,V) = eig(Y)
     n = size(Y,1)
     X = zeros(Y)
@@ -25,7 +25,7 @@ end
 
 This function projects a square matrix `Y` onto the set of nonnegative matrices with ones on the diagonal.
 """
-function nonnegative_correlation_projection(Y::Matrix{Float64})
+function nonnegative_correlation_projection(Y::Matrix{T}) where {T <: AbstractFloat}
    X = copy(Y)
    n = size(Y,1)
    for i = 1:n
@@ -42,7 +42,7 @@ end
 
 This function finds the closest kinship matrix to the symmetric matrix `M` (actually, twice the kinship matrix) by a proximal distance algorithm.
 """
-function closest_kinship_matrix(M::Matrix{Float64})
+function closest_kinship_matrix(M::Matrix{T}) where {T <: AbstractFloat}
 
     # Initialize control constants.
     ρ        = 1.0
@@ -97,7 +97,7 @@ end
 
 This function finds the closest kinship matrix to the symmetric matrix `M` (actually, twice the kinship matrix) by an _accelerated_ proximal distance algorithm.
 """
-function accelerated_closest_kinship_matrix(M::Matrix{Float64})
+function accelerated_closest_kinship_matrix(M::Matrix{T}) where {T <: AbstractFloat}
 
     # Initialize control constants.
     ρ        = 1.0
@@ -153,7 +153,7 @@ end
 This function finds the closest kinship matrix to the symmetric matrix `M` (actually, twice the kinship matrix) by an accelerated proximal distance algorithm.
 In this version, the positive semidefinite constraint is folded into the domain of the loss.
 """
-function accelerated_closest_kinship_matrix2(M::Matrix{Float64})
+function accelerated_closest_kinship_matrix2(M::Matrix{T}) where {T <: AbstractFloat}
 
     # Initialize control constants.
     ρ        = 1.0
@@ -206,7 +206,7 @@ end
 
 This function finds the closest kinship matrix to the symmetric matrix `M` (actually, twice the kinship matrix) by Dykstra's algorithm.
 """
-function dykstra_closest_kinship_matrix(M::Matrix{Float64})
+function dykstra_closest_kinship_matrix(M::Matrix{T}) where {T <: AbstractFloat}
 
     # Initialize control constants.
     maxiters = 5000
