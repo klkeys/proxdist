@@ -46,7 +46,7 @@ function test_nqp()
     A          = eye(n)
     b          = randn(n)
     ipopt_A    = spzeros(0,n)
-    pd_out     = nqp(A,b,inc_step=inc_step, rho_inc=rho_inc_d, rho_max=rho_max, quiet=quiet, tol=tol, rho=rho_d)
+    pd_out     = nqp(A,b,inc_step=inc_step, rho_inc=rho_inc_d, rho_max=rho_max, quiet=quiet, tol=tol, rho=rho_d, max_iter = 3)
     ipopt_out  = quadprog(b, A, ipopt_A, '=', ipopt_b, ipopt_lb, Inf, ipopt_solver)
     gurobi_out = quadprog(b, A, ipopt_A, '=', ipopt_b, ipopt_lb, Inf, gurobi_solver)
 
@@ -57,7 +57,7 @@ function test_nqp()
     inc_step   = inc_step_s
     b          = randn(n)
     ipopt_A    = spzeros(0,n)
-    pd_out     = nqp(A,b,inc_step=inc_step, rho_inc=rho_inc_s, rho_max=rho_max, quiet=quiet, tol=tol, rho=rho_s)
+    pd_out     = nqp(A,b,inc_step=inc_step, rho_inc=rho_inc_s, rho_max=rho_max, quiet=quiet, tol=tol, rho=rho_s, max_iter = 3)
     ipopt_out  = quadprog(b, A, ipopt_A, '=', ipopt_b, ipopt_lb, Inf, ipopt_solver)
     gurobi_out = quadprog(b, A, ipopt_A, '=', ipopt_b, ipopt_lb, Inf, gurobi_solver)
 
