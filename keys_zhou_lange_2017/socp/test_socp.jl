@@ -146,7 +146,7 @@ function test_proj_soc()
 
         # run using proximal distance algorithm
         tic()
-        pw = proj_soc(w,A,b,c,d, inc_step=inc_step, rho_inc=rho_inc, rho_max=rho_max, quiet=quiet, tol=tol, max_iter=max_iter, p=m, q=n, rho=rho)
+        pw = proj_soc(w,A,b,c,d, inc_step=inc_step, rho_inc=rho_inc, rho_max=rho_max, quiet=quiet, tol=tol, max_iter=max_iter, rho=rho)
         mm_time = toq()
 
         # run using SCS 

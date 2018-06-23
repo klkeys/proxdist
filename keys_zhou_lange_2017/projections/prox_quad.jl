@@ -37,11 +37,11 @@ function prox_quad(
 end
 
 """
-    prox_quad!(y, y2, V, d, b, py, invrho)
+    prox_quad!(y, y2, V, d, b, py, ρ_inv)
 
 Efficiently compute the proximal operator of a quadratic function `f(x) = 0.5*x'*A*x + b'*x` based on a spectral decomposition `A = V*diagm(d)*V'`. The proximal operator of `f` is
 
-    y = V * inv(1 + invrho*d) * V' * (py - invrho*b)
+    y = V * inv(1 + ρ_inv*d) * V' * (py - ρ_inv*b)
 
 `y2` is a temporary array used to store intermediate results. `py` is the projection `py = max.(y, 0)`.
 """
@@ -52,18 +52,18 @@ function prox_quad!(
     d      :: DenseVector{T},
     b      :: DenseVector{T},
     py     :: DenseVector{T},
-    invrho :: T
+    ρ_inv :: T
 ) where {T <: AbstractFloat}
 
-    # y2 .= py .- invrho .* b
-    copy!(y2,py)
-    BLAS.axpy!(-invrho, b, y2)
+    y2 .= py .- ρ_inv .* b
+    #copy!(y2,py)
+    #BLAS.axpy!(-ρ_inv, b, y2)
         
     # y .= V' * y2 
     At_mul_B!(y, V, y2)
 
-    # y2 .= diagm( 1 / (1 + invrho*d) ) * y
-    y2 .= y ./ (one(T) .+ invrho .* d)
+    # y2 .= diagm( 1 / (1 + ρ_inv*d) ) * y
+    y2 .= y ./ (one(T) .+ ρ_inv .* d)
 
     # y = V * y2
     A_mul_B!(y, V, y2)
