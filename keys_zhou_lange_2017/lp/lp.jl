@@ -219,7 +219,7 @@ function lin_prog(
 
         ### LSQR solve ###
         copy!(yq, z_max)
-        BLAS.axpy!(-ρ_inv  c, yq)
+        BLAS.axpy!(-ρ_inv,  c, yq)
         lsqr!(yp, At, yq, maxiter=200, atol=1e-8, btol=1e-8)
 #        lsqr!(yp, Atfun, yq, maxiter=200, atol=1e-8, btol=1e-8)
         A_mul_B!(z, At, yp)
