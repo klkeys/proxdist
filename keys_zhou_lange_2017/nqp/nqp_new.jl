@@ -43,8 +43,8 @@ end
 # ==============================================================================
 
 function nqp(
-    A        :: DenseMatrix{T},
-    b        :: DenseVector{T};
+    A        :: Matrix{T},
+    b        :: Vector{T};
     rho      :: T    = one(T),
     rho_inc  :: T    = one(T) + one(T),
     rho_max  :: T    = 1e15,
@@ -228,7 +228,7 @@ end
 
 function nqp(
     A        :: SparseMatrixCSC{T,Int},
-    b        :: DenseVector{T}; 
+    b        :: Vector{T}; 
     rho      :: T    = one(T),
     rho_inc  :: T    = one(T) + one(T),
     rho_max  :: T    = 1e20,
@@ -351,8 +351,8 @@ end
 
 # solve an NQP with quadprog() using the Gurobi solver
 function nqp_gurobi(
-    A       :: Union{DenseMatrix{T}, SparseMatrixCSC{T,Int}},
-    b       :: Union{DenseVector{T}, SparseMatrixCSC{T,Int}};
+    A       :: Union{Matrix{T}, SparseMatrixCSC{T,Int}},
+    b       :: Union{Vector{T}, SparseMatrixCSC{T,Int}};
     opttol  :: T = 1e-6,
     feastol :: T = 1e-6,
     quiet   :: Bool    = true,

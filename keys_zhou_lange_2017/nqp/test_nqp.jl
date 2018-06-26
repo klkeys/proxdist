@@ -13,12 +13,12 @@ function test_nqp()
     quiet      = true
     inc_step_d = 200
     inc_step_s = 100 
-    rho_inc_d  = 1.5 
-    rho_inc_s  = 1.5 
+    rho_inc_d  = 1.25 
+    rho_inc_s  = 1.25 
     rho_d      = 1e-2
     rho_s      = 1e-4
     rho_max    = 1e30
-    pd_tol     = 1e-4 # added to diagonal of A to ensure pos definiteness, i.e. A = AA'*AA + pd_tol*I
+    pd_tol     = 1e-3 # added to diagonal of A to ensure pos definiteness, i.e. A = AA'*AA + pd_tol*I
     opttol     = 1e-4 # gurobi tolerance for optimum
     feastol    = 1e-4 # Gurobi tolerance for feasibility
     nthreads   = 4
@@ -91,7 +91,6 @@ function test_nqp()
         if k <= max_dense_dim
             AA       = randn(n,n)
             A        = AA' * AA + pd_tol*I
-            y        = max.(randn(n),0)
             b        = randn(n)
             AA       = false
             rho_inc  = rho_inc_d

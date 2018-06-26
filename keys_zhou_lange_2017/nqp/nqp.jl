@@ -3,33 +3,48 @@ using JuMP
 using Gurobi
 using MathProgBase
 using IterativeSolvers
+using LinearMaps
+using ILU
 
-###################
-### subroutines ###
-###################
+
+# ==============================================================================
+# load projection code
+# ==============================================================================
+include("../projections/project_nonneg.jl")
+include("../projections/prox_quad.jl")
+
+# ==============================================================================
+# subroutines
+# ==============================================================================
+include("../common/common.jl")
 
 # create a function handle for CG 
 # will pass mulbyA! as an operator into handle 
-function mulbyA!(output, v, A, rho, n)
+function mulbyA!(output, v, A, ρ, n)
     A_mul_B!(output, A, v)
     @inbounds for i = 1:n
-        output[i] += v[i]*rho
+        output[i] += v[i]*ρ
     end
-    output
+    return output
 end
 
-include("../projections/prox_quad.jl")
-include("../common/common.jl")
-include("../projections/project_nonneg.jl")
+function nqp_loss(Ax::Vector{T}, b::Vector{T}, y::Vector{T}) where {T <: AbstractFloat}
+    a = zero(T)
+    h = convert(T, 0.5)
+    for i in eachindex(Ax)
+        a += (h * Ax[i] + b[i]) * y[i]
+    end
+    return a
+end
 
 
-######################
-### main functions ###
-######################
+# ==============================================================================
+# main functions
+# ==============================================================================
 
 function nqp(
-    A        :: DenseMatrix{T},
-    b        :: DenseVector{T};
+    A        :: Matrix{T},
+    b        :: Vector{T};
     rho      :: T    = one(T),
     rho_inc  :: T    = one(T) + one(T),
     rho_max  :: T    = 1e15,
@@ -50,25 +65,25 @@ function nqp(
     y   = zeros(T, n)
     y2  = zeros(T, n)
     z   = zeros(T, n)
-    Ax  = BLAS.gemv('N', one(T), A, x) 
+    Ax  = zeros(T, n) 
 
     # need spectral decomposition of A
     (d,V) = eig(A)
 
-	i       = 0
-    loss    = dot(Ax,x)/2 + dot(b,x)
-    loss0   = Inf
-    daffine = Inf
-    dnonneg = Inf
-    invrho  = one(T) / rho
-    z_max   = max(z, zero(T))
+	i         = 0
+    loss      = Inf 
+    loss0     = Inf
+    dnonneg   = Inf
+    converged = false
+    stuck     = false
+    ρ_inv     = one(T) / rho
+    z_max     = max.(z, zero(T))
 
     for i = 1:max_iter
 
         # compute accelerated step z = y + (i - 1)/(i + 2)*(y - x)
         kx = (i - one(T)) / (i + one(T) + one(T))
         ky = one(T) + kx
-        #difference!(z,y,x, a=ky, b=kx, n=n)
 		z .= ky.*y .- kx.*x
         copy!(x,y)
 
@@ -76,41 +91,50 @@ function nqp(
         i > 1 && project_nonneg!(z_max,z)
 
         # compute distances to constraint sets
+        dnonneg0 = dnonneg
         dnonneg = euclidean(z,z_max)
+
+        # prox dist update y = inv(I + ρ_inv*A)(z_max - ρ_inv*b)
+        prox_quad!(y, y2, V, d, b, z_max, ρ_inv)
+
+        # recompute loss
+        A_mul_B!(Ax, A, y)
+        loss = nqp_loss(Ax, b, y) 
 
         # print progress of algorithm
         quiet || print_progress(i, loss, dnonneg, rho, i_interval = 10, inc_step = inc_step)
-
-        # prox dist update y = inv(I + invrho*A)(z_max - invrho*b)
-        prox_quad!(y, y2, V, d, b, z_max, invrho)
+        @assert isfinite(loss) "Loss is no longer finite after $i iterations, something is wrong..."
 
         # convergence checks
-        A_mul_B!(Ax, A, y)
-        loss        = dot(Ax,y)/2 + dot(b,y)
         nonneg      = dnonneg < nnegtol
+        diffnonneg  = abs(dnonneg - dnonneg0)
         the_norm    = euclidean(x,y)
         scaled_norm = the_norm / (norm(x,2) + one(T))
         converged   = scaled_norm < tol && nonneg
+        stuck       = !converged && (scaled_norm < tol) && (diffnonneg < nnegtol)
 
         # if converged then break, else save loss and continue
-        converged && break
+        if converged || (stuck && rho >= rho_max)
+            quiet || print_progress(i, loss, dnonneg, rho, i_interval = max_iter, inc_step = inc_step)
+            break
+        end
         loss0 = loss
 
-        if i % inc_step == 0
-            rho    = min(rho_inc*rho, rho_max)
-            invrho = one(T) / rho
+        if i % inc_step == 0 || diffnonneg < nnegtol || stuck
+            rho   = min(rho_inc*rho, rho_max)
+            ρ_inv = one(T) / rho
             copy!(x,y)
         end
     end
 
     # threshold small elements of y before returning
     threshold!(y,tol)
-    return Dict{String, Any}("obj" => loss, "iter" => i, "x" => copy(y), "nonneg_dist" => dnonneg)
+    return Dict{String, Any}("obj" => loss, "iter" => i, "x" => copy(y), "nonneg_dist" => dnonneg, "converged" => converged, "stuck" => stuck)
 end
 
 function nqp(
     A        :: SparseMatrixCSC{T,Int},
-    b        :: DenseVector{T}; 
+    b        :: Vector{T}; 
     rho      :: T    = one(T),
     rho_inc  :: T    = one(T) + one(T),
     rho_max  :: T    = 1e20,
@@ -126,10 +150,13 @@ function nqp(
     @assert rho >  zero(T) "Argument rho must be positive"
 
     # initialize return values
-    i       = 0
-    loss    = Inf
-    loss0   = Inf
-    dnonneg = Inf
+    i         = 0
+    loss      = Inf
+    loss0     = Inf
+    dnonneg   = Inf
+    dnonneg0  = Inf
+    converged = false
+    stuck     = false
 
     # initialize arrays
 	n     = length(b)
@@ -143,26 +170,27 @@ function nqp(
 
     ### various ways to compute update
     ### (1): compute/cache Cholesky factorization, recompute whenever rho changes 
-    A0 = A + rho*I
-#    Afact = cholfact(A0)
+    #A0 = A + rho*I
+    Afact = cholfact(A, shift = rho)
 
     ### (2): use CG with a function handle "Afun" for fast updates
-#    Afun  = MatrixFcn{T}(n, n, (output, v) -> mulbyA!(output, v, A, rho, n))
     ### need a preconditioner for cg?
-    ### compute a Cholesky factorization of original A as a preconditioner
-#    Afact = cholfact(A)
+    ### compute a factorization of A or A + rho*I as a preconditioner
+#    f(output, v) = mulbyA!(output, v, A, rho, n)
+#    Afun = LinearMap{T}(f, n, ismutating = true)
+#    A0 = A + rho*I
+#    Pl = cholfact(A0)
+#    Pl = crout_ilu(A0, τ=0.01)
 
-    # (3): use LSQR (reuse A0 from cholfact)
-    # need an initialized Convergence History for good memory management
-    #ch = ConvergenceHistory(false, (0.0,0.0,0.0), 0, T[])
+    # (3): use LSQR
+    #A0 = A + rho*I
 
     for i = 1:max_iter
 
         # compute accelerated step z = y + (i - 1)/(i + 2)*(y - x)
-        kx = (i - 2) / (i + 1)
+        kx = (i - one(T)) / (i + one(T) + one(T))
         ky = one(T) + kx
-        #difference!(z,y,x, a=ky, b=kx, n=n) # z = ky*y - kx*x
-		z .= ky.*y .+ kx.*x
+		z .= ky.*y .- kx.*x
         copy!(x,y)
 
         # compute projection onto constraint set
@@ -170,50 +198,57 @@ function nqp(
         i > 1 && project_nonneg!(z_max, z)
 
         # also update b0 = rho*z_max - b
-        #difference!(b0, z_max, b, a=rho, n=n)
-		b0 .= rho.*z_mac .- b
+		b0 .= rho.*z_max .- b
 
         # prox dist update y = inv(rho*I + A)(rho*z_max - b)
         # use z as warm start
-#        cg!(y, Afun, b0, maxiter=200, tol=1e-8)                # CG with no precond
-#        cg!(y, Afun, b0, Afact, maxiter=200, tol=1e-8)         # precond CG
-        lsqr!(y, A0, b0, maxiter=200, atol=1e-8, btol=1e-8) # LSQR, no damping 
-#        y = Afact \ b0                                         # Cholesky linear system solve
+        #cg!(y, Afun, b0, Pl=Pl, maxiter=200, tol=1e-6, log = false, verbose = false)  # CG with precond
+        #lsqr!(y, A0, b0, maxiter=200, atol=1e-8, btol=1e-8) # LSQR, no damping 
+        y .= Afact \ b0                                         # Cholesky linear system solve
 
         # compute distance to constraint set
-        dnonneg = euclidean(y,z_max)
+        dnonneg0 = dnonneg
+        dnonneg = euclidean(y, z_max)
 
         # recompute loss
         A_mul_B!(Ax,A,y)
-        loss = dot(Ax,y) / 2 + dot(b,y)
+        loss = nqp_loss(Ax, b, y) 
 
         # print progress of algorithm
         quiet || print_progress(i, loss, dnonneg, rho, i_interval = 10, inc_step = inc_step)
 
         # check that loss is still finite
         # in contrary case, throw error
-        isfinite(loss) || throw(error("Loss is no longer finite after $i iterations, something is wrong...")) 
+        @assert isfinite(loss) "Loss is no longer finite after $i iterations, something is wrong..."
 
         # convergence checks
         nonneg      = dnonneg < nnegtol
+        diffnonneg  = abs(dnonneg - dnonneg0) / abs(dnonneg0)
         the_norm    = euclidean(x,y)
         scaled_norm = the_norm / (norm(x) + one(T))
         converged   = scaled_norm < tol && nonneg
+        stuck       = !converged && (scaled_norm < tol) && (diffnonneg < tol)
 
         # if converged then break, else save loss and continue
-        converged && break
+        if converged || (stuck && rho >= rho_max)
+            quiet || print_progress(i, loss, dnonneg, rho, i_interval = 10, inc_step = inc_step)
+            break
+        end
         loss0 = loss
 
-        if i % inc_step == 0
+        if i % inc_step == 0 || diffnonneg < nnegtol || stuck
             rho = min(rho_inc*rho, rho_max)
-            A0  = A + rho*I
-#            Afact = cholfact(A0)
-#            Afun = MatrixFcn{T}(n, n, (output, v) -> mulbyA!(output, v, A, rho, n))
+            Afact = cholfact(A, shift = rho)
+#            f(output, v) = mulbyA!(output, v, A, rho, n)
+#            Afun = LinearMap{T}(f, n, ismutating = true)
+#            A0 .= A + rho*I
+#            Pl = cholfact(A0)
+#            Pl = crout_ilu(A0, τ=0.01)
             copy!(x,y) 
         end
     end
 
     # threshold small elements of y before returning
     threshold!(y,tol)
-    return Dict{String, Any}("obj" => loss, "iter" => i, "x" => y, "nonneg_dist" => dnonneg)
+    return Dict{String, Any}("obj" => loss, "iter" => i, "x" => copy(y), "nonneg_dist" => dnonneg, "converged" => converged, "stuck" => stuck)
 end

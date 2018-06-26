@@ -3,7 +3,6 @@
 # ==============================================================================
 
 # function to compute a Nesterov acceleration step at iteration i
-#function compute_accelerated_step!(z::DenseVector{T}, x::DenseVector{T}, y::DenseVector{T}, i::Int) where {T <: AbstractFloat}
 function compute_accelerated_step!(z::S, x::S, y::S, i::Int, T::Type) where {S <: AbstractVecOrMat} # key: ensure that z, x, y are of same type
 	kx = (i - one(T)) / (i + one(T) + one(T))
 	ky = one(T) + kx
