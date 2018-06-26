@@ -137,9 +137,7 @@ function test_nqp()
     # table end matter
     println("\t\t\t\\bottomrule")
     println("\t\t\\end{tabular}")
-#    println("\t\\caption{CPU times and optima for nonnegative quadratic programming. Here \$n\$ is the number of variables, ``Real\" denotes the true optimum, PD is the proximal distance algorithm, IPOPT is the Ipopt solver, and Gurobi is the Gurobi solver. After \$n = $(2^max_dense_dim)\$, the constraint matrix \$\\boldsymbol{A}\$ is sparse with sparsity level \$2*\\log_{10}(n)/n\$.}")
-#    println("\t\\caption{CPU times and optima for nonnegative quadratic programming. Here \$n\$ is the number of variables, PD is the proximal distance algorithm, IPOPT is the Ipopt solver, and Gurobi is the Gurobi solver. After \$n = $(2^max_dense_dim)\$, the constraint matrix \$\\boldsymbol{A}\$ is sparse with sparsity level \$\\log_{10}(n)/n\$.}")
-    println("\t\\caption{CPU times and optima for nonnegative quadratic programming. Here \$n\$ is the number of variables, PD is the proximal distance algorithm, IPOPT is the Ipopt solver, and Gurobi is the Gurobi solver. After \$n = $(2^max_dense_dim)\$, the constraint matrix \$\\boldsymbol{A}\$ is sparse.") 
+    println("\t\\caption{CPU times and optima for nonnegative quadratic programming. Here \$n\$ is the number of variables, PD is the proximal distance algorithm, IPOPT is the Ipopt solver, and Gurobi is the Gurobi solver. After \$n = $(2^max_dense_dim)\$, the constraint matrix \$\\boldsymbol{A}\$ is sparse.}") 
     println("\t\\label{tab:nqp}")
     println("\\end{table}")
 
