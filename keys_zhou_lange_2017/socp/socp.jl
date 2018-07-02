@@ -14,15 +14,15 @@ using LinearMaps
 include("../common/common.jl")
 include("../projections/prox_quad.jl")
 
-# create a function handle for CG 
-# will pass mulbyA! as an operator into handle 
+# create a function handle for CG
+# will pass mulbyA! as an operator into handle
 #function mulbyA!(output, v, A, c, ρ)
 ##  output = vecdot(c, v) * c + A' * (A * v) + v / ρ
 #  output = ρ*vecdot(c, v) * c + ρ*A' * (A * v) + v
 #end
 
 function mulbyA!(output, v, A, c, ρ, v2)
-    A_mul_B!(v2,A,v) 
+    A_mul_B!(v2,A,v)
     At_mul_B!(output, A, v2)
     scale!(output, ρ)
     BLAS.axpy!(one(eltype(v)), v, output)
@@ -49,7 +49,7 @@ function proj_soc!(
         a = (n + r) / (2 * n)
         copy!(xp,x)
         scale!(xp, a)
-        return a*n 
+        return a*n
     end
     copy!(xp,x)
     return r
@@ -76,9 +76,14 @@ end
 
 """
     proj_soc!(px,x,A,b,c,d)
+
 Use a proximal distance algorithm to compute the second order cone projection
-    minimize 0.5*||u - x|| + lambda(Au + b - w) + 0.5*rho*|| (w,r) - P(w,r) ||
-with `w = A*u + b` and `r = dot(c,u) + d`.
+
+    minimize 0.5*||u - x|| + λ(Au + b - w) + 0.5*ρ*|| (w,r) - P(w,r) ||
+
+with `w = A*u + b`, `r = dot(c,u) + d`, and `P(w,r)` is the projection onto the Lorentz cone constraint
+
+    L = { y : ||w|| <= r }.
 """
 function proj_soc!(
     xp       :: Vector{T},
@@ -87,7 +92,7 @@ function proj_soc!(
     b        :: Vector{T},
     c        :: Vector{T},
     d        :: T;
-    rho      :: T    = 1 / size(A,2), 
+    rho      :: T    = 1 / size(A,2),
     rho_inc  :: T    = one(T) + one(T),
     rho_max  :: T    = 1e30,
     tol      :: T    = 1e-6,
@@ -116,15 +121,16 @@ function proj_soc!(
     r0  = r
     R   = r
 
-    loss    = sqeuclidean(x,u) / 2 
-    loss0   = Inf
-    dw      = Inf
-    dr      = Inf
+    loss   = sqeuclidean(x,u) / 2
+    loss0  = Inf
+    dw     = Inf
+    dr     = Inf
+    ρ_inv = one(T) / rho
 
     # factorize matrix A'*A + c*c'
-    BLAS.gemm!('T', 'N', one(T), A, A, zero(T), AA)
+    At_mul_B!(AA, A, A)
     BLAS.ger!(one(T), c, c, AA)
-    ev,V = eig(AA) 
+    ev,V = eig(AA)
 
     if !quiet
         @printf("Iter\tLoss\tNorm\tdw\tdr\tRho\n")
@@ -140,24 +146,29 @@ function proj_soc!(
 #        compute_accelerated_step!(U, u, u0, i)
 
         # save previous iterate
-        #copy!(u0,u)
+        copy!(u0,u)
 
         # update w, r with new u
+        # pw, pr come from projecting (W,R) onto the SOC constraint
         copy!(W,b)
         BLAS.gemv!('N', one(T), A, U, one(T), W)
         R = dot(c,U) + d
         pr = proj_soc!(pw,W,R)
-#        pw, pr = proj_soc(W,R)
 
         # for prox dist update need to recompute z
         # z = A' * (b - pw) + ((d - pr)*c)
         copy!(z2,b)
         BLAS.axpy!(-one(T), pw, z2)
         BLAS.gemv!('T', one(T), A, z2, zero(T), z)
+        #At_mul_B!(z, A, z2)
         BLAS.axpy!(d - pr, c, z)
 
-        # prox dist update uses quadratic proximal map 
-        # u = (invrho*I + AA) \ (invrho*x + A'*(P(w) - b) + (P(r) - d)c)
+        # prox dist update uses quadratic proximal map
+        #u .= (ρ_inv*I + AA) \ (ρ_inv*x + A'*(pw - b) + (pr - d)*c)
+        #   = (ρ_inv*I + AA) \ (ρ_inv*x - A'*(b - pw) + (d - pr)*c)
+        #   = (ρ_inv*I + AA) \ (ρ_inv*x - z)
+        #   = (I + rho*AA) \ (x - rho*z)
+        #   = V*inv(I + rho*d)*V'*(x - rho*z)
         prox_quad!(u, y2, V, ev, z, x, rho)
 
         # update w, r with new u
@@ -166,17 +177,18 @@ function proj_soc!(
         r = dot(c,u) + d
 
         # convergence checks
-        loss        = sqeuclidean(u,x) / 2 
+        loss        = sqeuclidean(u,x) / 2
         dw          = euclidean(w,pw)
-        dr          = sqrt(abs(r*r - 2*r*pr + pr*pr)) 
+        dr          = sqrt(abs(r*r - 2*r*pr + pr*pr))
         feas        = dw < feastol && dr < feastol
         the_norm    = euclidean(u,u0)
         scaled_norm = the_norm / (norm(u0,2) + one(T))
-        converged   = scaled_norm < tol && feas 
+        converged   = scaled_norm < tol && feas
 
-        # print progress of algorithm
-        if (i <= 10 || i % inc_step == 0) && !quiet
-            @printf("%d\t%3.7f\t%3.7f\t%3.7f\t%3.7f\t%3.7f\n", i, loss, the_norm, dw, dr, rho)
+        # if converged then break, else save loss and continue
+        if converged || (rho >= rho_max)
+            quiet || print_progress(i, loss, dw, dr, rho, i_interval = max_iter, inc_step = inc_step)
+            break
         end
 
         # if converged then break, else save loss and continue
@@ -184,10 +196,9 @@ function proj_soc!(
         loss0 = loss
 
         if i % inc_step == 0
-            rho    = min(rho_inc*rho, rho_max)
+            rho   = min(rho_inc*rho, rho_max)
+            ρ_inv = one(T) / rho
             copy!(u0,u)
-#            copy!(w0,w)
-#            r0 = r
         end
     end
 
@@ -227,7 +238,7 @@ end
 #             x   >= 0
 #
 #with an accelerated proximal distance algorithm. Here the affine constraints of the linear program are moved into the objective function.
-#The vector `lambda` represents the Lagrange multiplier. 
+#The vector `lambda` represents the Lagrange multiplier.
 #"""
 function proj_soc(
     x        :: SparseMatrixCSC{T,Int},
@@ -249,15 +260,15 @@ function proj_soc(
     check_conformability(A,b,c)
 
     p,q = size(A)
-    At = A' 
-    u  = sprandn(q 1, 0.1)
-    v2 = zeros(T p)
-    U  = copy(u) 
+    At = A'
+    u  = sprandn(q, 1, 0.1)
+    v2 = zeros(T, p)
+    U  = copy(u)
     u0 = copy(u)
-    w  = spzeros(T p, 1)
-    W  = copy(w) 
+    w  = spzeros(T, p, 1)
+    W  = copy(w)
     pw = copy(b)
-    z  = spzeros(T q, 1)
+    z  = spzeros(T, q, 1)
     r  = zero(T)
     pr = r
     R  = r
@@ -270,7 +281,7 @@ function proj_soc(
     # cache a factorization of I + rho*A'*A + rho*c*c'
     # we must update the factorization every time that we update rho
 #    ey = speye(q,q)
-#    E  = [sqrt(1/rho)*ey; A; c'] 
+#    E  = [sqrt(1/rho)*ey; A; c']
 #    Efact = qrfact(E)
 #    E = [A; c'; ey / sqrt(rho)] # augmented design matrix
 
@@ -284,9 +295,6 @@ function proj_soc(
 
 
     # function handle to efficiently compute multiplication by A
-#    Afun = MatrixFcn{T}(q, q, (output, v) -> mulbyA!(output, v, A, c, rho))
-#    Afun = MatrixFcn{T}(q, q, (output, v) -> mulbyA!(output, v, A, full(c), rho))
-#    Afun = MatrixFcn{T}(q, q, (output, v) -> mulbyA!(output, v, A, c, rho, v2))
     f(output, v) = mulbyA!(output, v, A, c, rho, v2)
     Afun = LinearMap(f, q, q, ismutating = true)
 
@@ -300,7 +308,7 @@ function proj_soc(
         # compute accelerated step z = y + (i - 1)/(i + 2)*(y - x)
         kx = (i - one(T)) / (i + one(T) + one(T))
         ky = one(T) + kx
-        U  = ky*u - kx*u0
+        U  .= ky.*u .- kx.*u0
         copy!(u0,u)
 
         # compute projections onto constraint sets
@@ -314,7 +322,7 @@ function proj_soc(
 #        b0 = [vec(full(x - rho*z)); zeros(p+1)]
         b0 = vec(full(x - rho*z))
 
-        # prox dist update 
+        # prox dist update
 #        u2 = Efact \ b0
 #        u2 = vec(full(U))
         cg!(u2, Afun, b0, maxiter=200, tol=1e-8)
@@ -327,13 +335,13 @@ function proj_soc(
         r = vecdot(c,u) + d
 
         # convergence checks
-        loss        = 0.5*sqeuclidean(u,x) 
+        loss        = sqeuclidean(u,x) / 2
         dw          = euclidean(w,pw)
-        dr          = sqrt(abs(r*r - 2*r*pr + pr*pr)) 
+        dr          = sqrt(abs(r*r - 2*r*pr + pr*pr))
         feas        = dr < feastol && dw < feastol
-        the_norm    = euclidean(u,u0) 
+        the_norm    = euclidean(u,u0)
         scaled_norm = the_norm / (norm(u0) + one(T))
-        converged   = scaled_norm < tol && feas 
+        converged   = scaled_norm < tol && feas
 
         # print progress of algorithm
         if (i <= 10 || i % inc_step == 0) && !quiet
@@ -377,27 +385,27 @@ function proj_soc(
     tol      :: T = 1e-6,
     feastol  :: T = 1e-6,
     quiet    :: Bool    = true,
-    p        :: Int     = length(b), 
-    q        :: Int     = length(c), 
-    At       :: SparseMatrixCSC{T,Int} = A', 
-    u        :: Vector{T} = zeros(T, q), 
-    v2       :: Vector{T} = zeros(T, p), 
-    U        :: Vector{T} = zeros(T, q), 
-    u0       :: Vector{T} = zeros(T, q), 
-    w        :: Vector{T} = zeros(T, p), 
-    W        :: Vector{T} = zeros(T, p), 
-    pw       :: Vector{T} = zeros(T, p), 
-    z        :: Vector{T} = zeros(T, q), 
-    b0       :: Vector{T} = zeros(T, q), 
-    r        :: T = zero(T),
-    pr       :: T = r,
-    R        :: T = r,
 ) where {T <: AbstractFloat}
 
     # error checking
-    (p,q) == size(A) || throw(DimensionMismatch("nonconformable A, b, and c"))
+    check_conformability(A, b, c)
+    p,q = size(A)
 
-    loss    = 0.5*sqeuclidean(x,u) 
+    At = A'
+    u  = zeros(T, q)
+    v2 = zeros(T, p)
+    U  = zeros(T, q)
+    u0 = zeros(T, q)
+    w  = zeros(T, p)
+    W  = zeros(T, p)
+    pw = zeros(T, p)
+    z  = zeros(T, q)
+    b0 = zeros(T, q)
+    r  = zero(T)
+    pr = r
+    R  = r
+
+    loss    = 0.5*sqeuclidean(x,u)
     loss0   = Inf
     dw      = Inf
     dr      = Inf
@@ -426,7 +434,6 @@ function proj_soc(
         # compute accelerated step z = y + (i - 1)/(i + 2)*(y - x)
         kx = (i - one(T)) / (i + one(T) + one(T))
         ky = one(T) + kx
-        #difference!(U, u, u0, a=ky, b=kx)
         U .= ky.*u .- kx.*u0
         copy!(u0,u)
 
@@ -446,30 +453,29 @@ function proj_soc(
 
         # update b0 for CG inversion
 #        b0 = [vec(full(x - rho*z)); zeros(p+1)]
-        #difference!(b0, x, z, a=1.0, b=rho)
         b0 .= x .- rho.*z
 #        A_mul_B!(v2, E, b0)
 
-        # prox dist update 
+        # prox dist update
 #        u2 = Efact \ b0
 #        u2 = vec(full(U))
         cg!(u, Afun, b0, maxiter=200, tol=1e-8)
 #        lsqr!(u, E, v2, maxiter=200, atol=1e-8, btol=1e-8)
 
         # now update w,r
-        # w = A*u + b, r = dot(c,u) + d 
+        # w = A*u + b, r = dot(c,u) + d
         A_mul_B!(w, A, u)
         BLAS.axpy!(one(T), b, w)
         r = dot(c,u) + d
 
         # convergence checks
-        loss        = 0.5*sqeuclidean(u,x) 
+        loss        = sqeuclidean(u,x) / 2
         dw          = euclidean(w,pw)
-        dr          = sqrt(abs(r*r - 2*r*pr + pr*pr)) 
+        dr          = sqrt(abs(r*r - 2*r*pr + pr*pr))
         feas        = dr < feastol && dw < feastol
-        the_norm    = euclidean(u,u0) 
+        the_norm    = euclidean(u,u0)
         scaled_norm = the_norm / (norm(u0) + one(T))
-        converged   = scaled_norm < tol && feas 
+        converged   = scaled_norm < tol && feas
 
         # print progress of algorithm
         if (i <= 10 || i % inc_step == 0) && !quiet
@@ -482,13 +488,11 @@ function proj_soc(
 
         if i % inc_step == 0
             rho    = min(rho_inc*rho, rho_max)
-#            E  = [ey; sqrt(rho)*A; sqrt(rho)*c'] 
-#            E  = [sqrt(1/rho)*ey; A; c'] 
+#            E  = [ey; sqrt(rho)*A; sqrt(rho)*c']
+#            E  = [sqrt(1/rho)*ey; A; c']
 #            E = [A; c'; ey / sqrt(rho)] # augmented design matrix
 #            Et = E'
 #            Efact = qrfact(E)
-#            Afun = MatrixFcn{T}(q, q, (output, v) -> mulbyA!(output, v, A, c, rho))
-            #Afun = MatrixFcn{T}(q, q, (output, v) -> mulbyA!(output, v, A, c, rho, v2))
             f(output, v) = mulbyA!(output, v, A, c, rho, v2)
             Afun = LinearMap(f, q, q, ismutating = true)
             copy!(u0,u)
@@ -513,20 +517,20 @@ function test_dense_socp()
     # set algorithm parameters
     max_iter = 10000
     eps      = 1e-4
-    quiet    = false 
+    quiet    = false
     verbose  = !quiet
     inc_step = 100
     rho_inc  = 2.0
 
-    # set dimensions 
-    m = 1024 
-    n = 2*m 
+    # set dimensions
+    m = 1024
+    n = 2*m
 
     A = randn(m,n)
     x = rand(n)
-    c = ones(n) / n 
-    b = rand(m) 
-    d = norm(A*x + b) 
+    c = ones(n) / n
+    b = rand(m)
+    d = norm(A*x + b)
     w  = randn(n)
     pw = copy(w)
 
@@ -575,31 +579,31 @@ function test_sparse_socp()
 
     # set algorithm parameters
     max_iter = 10000
-    eps      = 1e-3 # tol for SCS 
+    eps      = 1e-3 # tol for SCS
     tol      = 1e-6
-    quiet    = false 
+    quiet    = false
     verbose  = !quiet
     inc_step = 10
-    rho_inc  = 5.0 
+    rho_inc  = 5.0
 
-    # set dimensions 
-    m = 1024 
+    # set dimensions
+    m = 1024
     n = 2056
     s = 0.01
     rho = 1e-2
 
-    m *= 4 
+    m *= 4
     n *= 4
 
     A = sprandn(m,n,s)
     x = sprand(n,1,s)
-    c = sprand(n,1,s) 
-    b = sprand(m,1,s) 
-    d = norm(A*x + b) 
+    c = sprand(n,1,s)
+    b = sprand(m,1,s)
+    d = norm(A*x + b)
 #    x = vec(full(sprand(n,1,s)))
-#    c = vec(full(sprand(n,1,s))) 
-#    b = vec(full(sprand(m,1,s))) 
-#    d = norm(A*x + b) 
+#    c = vec(full(sprand(n,1,s)))
+#    b = vec(full(sprand(m,1,s)))
+#    d = norm(A*x + b)
 
     println("Problem specs ok?")
     @show norm(A*x + b)

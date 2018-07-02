@@ -8,7 +8,7 @@ function compute_accelerated_step!(z::S, x::S, y::S, i::Int, T::Type) where {S <
 	ky = one(T) + kx
 
 	# z = ky*y - kx*x
-	z .= ky .* y .- kx .* x 
+	z .= ky .* y .- kx .* x
 	copy!(x,y)
 end
 
@@ -29,13 +29,13 @@ function print_progress(i, loss, dnonneg, rho; i_interval::Int = 10, inc_step::I
     end
 end
 
-# function to set all elements of a vector x with magnitude smaller than threshold ε to a value α 
+# function to set all elements of a vector x with magnitude smaller than threshold ε to a value α
 # function for dense vectors is different from function for sparse ones
 function threshold!(x::DenseVecOrMat{T}, ε::T, α::T = zero(T)) where {T <: AbstractFloat}
     @assert ε >= α >= 0 "Arguments must satisfy ε > α >= 0"
     for i in eachindex(x)
         if abs(x[i]) < ε
-            x[i] = α 
+            x[i] = α
         end
     end
     return x
