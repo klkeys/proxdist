@@ -13,22 +13,27 @@ i = 1
 A = randn(n[i], n[i])
 A = A' * A
 b = randn(n[i])
-tic(); (iters, x1, y1) = linear_complementarity(A, b); timing[i, 1] = toc();
-tic(); (iters, y) = (x2, y2) = linear_complementarity_milp(A, b);
+(x1, y1)    = linear_complementarity(A, b);
+(x2, y2, m) = linear_complementarity_milp(A, b); 
 
 for i = 1:length(n)
-  A = randn(n[i], n[i])
-  A = A' * A
-  b = randn(n[i])
+    A = randn(n[i], n[i])
+    A = A' * A
+    b = randn(n[i])
 
-  # proximal distance
-  tic(); (iters, x1, y1) = linear_complementarity(A, b); timing[i, 1] = toc();
-  loss[i, 1] = 0.5 * sum(abs2, y1 - A*x1 - b)
+    # proximal distance
+    tic()
+    (iters, x1, y1) = linear_complementarity(A, b)
+    timing[i, 1] = toq()
+    #loss[i, 1] = 0.5 * sum(abs2, y1 - A*x1 - b)
+    loss[i, 1] = (vecnorm(y1 - A*x1 - b)^2) / 2
 
-  # mixed integer programming
-  tic(); (iters, y) = (x2, y2) = linear_complementarity_milp(A, b);
-  timing[i, 2] = toc();
-  loss[i, 2] = 0.5 * sum(abs2, y2 - A*x2 - b)
+    # mixed integer programming
+    tic()
+    (x2, y2, m) = linear_complementarity_milp(A, b)
+    timing[i, 2] = toq()
+    #loss[i, 2]   = 0.5 * sum(abs2, y2 - A*x2 - b)
+    loss[i, 2]   = (vecnorm(y2 - A*x2 - b)^2) / 2
 end
 
 println("\\begin{table}")

@@ -7,28 +7,37 @@ n = sort([n; n + 1])
 timing = zeros(length(n), 3)
 loss = zeros(length(n), 2)
 losssdp = Array(AbstractString, length(n))
+
+# precompile functions
+n_test = 4
+M_test = horn_matrix(n_test)
+(iters, y) = copositivity(M_test);
+(iters, y) = accelerated_copositivity(M_test);
+CoPositivityBySDP(M_test);
+
 for i = 1:length(n)
   M = horn_matrix(n[i])
   # proximal distance
-  tic(); (iters, y) = copositivity(M); timing[i, 1] = toc();
+  tic(); (iters, y) = copositivity(M); timing[i, 1] = toq();
   loss[i, 1] = 0.5 * dot(y, M * y)
   # accelerated proximal distance
-  tic(); (iters, y) = accelerated_copositivity(M); timing[i, 2] = toc();
+  tic(); (iters, y) = accelerated_copositivity(M); timing[i, 2] = toq();
   loss[i, 2] = 0.5 * dot(y, M * y)
   # semidefinite programming
-  tic(); losssdp[i] = CoPositivityBySDP(M); timing[i, 3] = toc();
+  tic(); losssdp[i] = CoPositivityBySDP(M); timing[i, 3] = toq();
 end
 
 println("\\begin{table}")
 println("\t\\centering")
 println("\t\\begin{tabular}{rrrrrrr}")
-println("\t\t\\multicolumn{1}{c}{Dimensions} & \\multicolumn{3}{c}{Optima} & \\multicolumn{3}{c}{CPU Times} \\\\ ")
-println("\t\t\\\cmidrule(r){2-4} \\cmidrule(r){5-7}")
+println("\t\t\\toprule")
+println("\t\t\\multicolumn{1}{c}{Dimension} & \\multicolumn{3}{c}{Optima} & \\multicolumn{3}{c}{CPU Times} \\\\ ")
+println("\t\t\\cmidrule(r){1-1} \\cmidrule(r){2-4} \\cmidrule(r){5-7}")
 println("\t\t\$n\$ & PD & aPD & Mosek & PD & aPD & Mosek\\\\")
-println("\\hline")
+println("\t\t\\hline")
 for k = 1:length(n)
-	@printf("\t\t%d & %3.6f & %3.6f & %s & %3.4f & %3.4f & %3.4f\\\\\n", n[k],
-  loss[k, 1], loss[k, 2], losssdp[k], timing[k, 1], timing[k, 2], timing[k, 3])
+	@printf("\t\t%d & %3.6f & %3.6f & %s & %3.4f & %3.4f & %3.4f\\\\\n",
+            n[k], loss[k, 1], loss[k, 2], losssdp[k], timing[k, 1], timing[k, 2], timing[k, 3])
 end
 println("\t\t\\bottomrule")
 println("\t\\end{tabular}")
@@ -47,22 +56,23 @@ for i = 1:length(n)
   M = randn(n[i], n[i])
   M = 0.5 * (M + M')
   # proximal distance
-  tic(); (iters, y) = copositivity(M); timing[i, 1] = toc();
+  tic(); (iters, y) = copositivity(M); timing[i, 1] = toq();
   loss[i, 1] = 0.5 * dot(y, M * y)
   # accelerated proximal distance
-  tic(); (iters, y) = accelerated_copositivity(M); timing[i, 2] = toc();
+  tic(); (iters, y) = accelerated_copositivity(M); timing[i, 2] = toq();
   loss[i, 2] = 0.5 * dot(y, M * y)
   # semidefinite programming
-  tic(); losssdp[i] = CoPositivityBySDP(M); timing[i, 3] = toc();
+  tic(); losssdp[i] = CoPositivityBySDP(M); timing[i, 3] = toq();
 end
 
 println("\\begin{table}")
 println("\t\\centering")
 println("\t\\begin{tabular}{rrrrrrr}")
-println("\t\t\\multicolumn{1}{c}{Dimensions} & \\multicolumn{3}{c}{Optima} & \\multicolumn{3}{c}{CPU Times} \\\\ ")
-println("\t\t\ \\cmidrule(r){2-4} \\cmidrule(r){5-7}")
+println("\t\t\\toprule")
+println("\t\t\\multicolumn{1}{c}{Dimension} & \\multicolumn{3}{c}{Optima} & \\multicolumn{3}{c}{CPU Times} \\\\")
+println("\t\t\cmidrule(r){1-1} \\cmidrule(r){2-4} \\cmidrule(r){5-7}")
 println("\t\t\$n\$ & PD & aPD & Mosek & PD & aPD & Mosek\\\\")
-println("\\hline")
+println("\t\t\\hline")
 for k = 1:length(n)
 	@printf("\t\t%d & %3.6f & %3.6f & %s & %3.4f & %3.4f & %3.4f\\\\\n", n[k],
   loss[k, 1], loss[k, 2], losssdp[k],
