@@ -56,6 +56,66 @@ end
 
 
 """
+    project_affine(y::Vector, At::SparseMatrixCSC, b::Vector)
+
+Projection of a point `y` to the set of points satisfying `A*x = b`. 
+Input should be `At`, transpose of `A`.
+
+# Input
+- `y`: point to project.
+- `At`: sparse matrix.
+- `b`: rhs of affine constraint `A*x = b`.
+
+# Output
+- `p`: projection of `y` to affine constraint `A*x = b`.
+- `atqr`: sparse QR factorization of `At`.
+- `d`: minimum norm solution `pinv(A)*b` of `A*x = b`.
+"""
+function project_affine(y::Vector, At::SparseMatrixCSC, b::Vector)
+
+    # sparse QR of A'
+    #atqr = qrfact(A')
+    atqr = qrfact(At)
+
+    # solve R z = b
+    z = SparseArrays.SPQR.solve(SparseArrays.SPQR.RTX_EQUALS_ETB, atqr, SparseArrays.CHOLMOD.Dense(b))
+
+    # compute d1 = Q * z, mininum norm solution to Ax=b
+    d = SparseArrays.SPQR.qmult(SparseArrays.SPQR.QX, atqr, z)
+
+    # projection to affine set
+    p = y - At * (atqr \ y) + d
+
+    return p[:], atqr, d[:]
+end
+
+"""
+    project_affine(py::Vector, y::Vector, At::SparseMatrixCSC, Atqr::Factorization, b::Vector)
+
+Overwrite `py` by projection of a point `y` to the set of points satisfying `A*x = b`. 
+Input should be `At`, the transpose of `A`.
+
+# Input
+- `py`: storage for projection of `y`.
+- `y`: point to project.
+- `At`: sparse matrix.
+- `Atqr`: sparse QR factorization of `At`.
+- `b`: rhs of affine constraint `Ax=b`.
+
+# Output
+- `py`: projection of `y`.
+"""
+function project_affine!(py::Vector, y::Vector, At::SparseMatrixCSC, Atqr::Factorization, d::Vector)
+
+    # py = y - At * (Atqr \ y) + d
+    A_mul_B!(py, At, Atqr \ y)
+    py .= y .- py .+ d 
+    return py
+end
+
+
+
+"""
     project_affine(v::SparseMatrixCSC, A::SparseMatrixCSC, b::SparseMatrixCSC)
 
 For a sparse matrix `A` and sparse vectors `v` and `b`, `project_affine` computes the projection of `v` onto the affine constraints `A*v == b`.

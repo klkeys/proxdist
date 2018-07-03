@@ -606,12 +606,14 @@ function lin_prog3(
 	z       = zeros(q)
 
 	# compute initial affine projection
-    #z_affine, C, d = project_affine(z,A,b)
+#    #z_affine, C, d = project_affine(z,A,b)
+#    At = A'
+#    AA = cholfact(A * At)
+#    C  = full(I - (At * ( AA \ A)))
+#    d  = vec(full(At * (AA \ b)))
+#    z_affine = copy(d)  ## z_affine = C*0 + d
     At = A'
-    AA = cholfact(A * At)
-    C  = full(I - (At * ( AA \ A)))
-    d  = vec(full(At * (AA \ b)))
-    z_affine = copy(d)  ## z_affine = C*0 + d
+    z_affine, C, d = project_affine(z,At,b) ## C is a factorization!
 
 	for i = 1:max_iter
 		
@@ -619,7 +621,8 @@ function lin_prog3(
 		compute_accelerated_step!(z, x, y, i)
 
 		# project onto the constraint set
-        i > 1 && project_affine!(z_affine, z, C, d)
+        #i > 1 && project_affine!(z_affine, z, C, d)
+        i > 1 && project_affine!(z_affine, z, At, C, d)
         daffine0 = daffine
 		daffine  = euclidean(z, z_affine) 
 
