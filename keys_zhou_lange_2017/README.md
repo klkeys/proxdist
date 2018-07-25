@@ -4,13 +4,17 @@ This folder contains code for the proximal distance algorithm manuscript by KL K
 All examples are coded in [Julia](https://julialang.org/). 
 The subfolders correspond to the numerical examples from the manuscript: 
 
+* `lp` for linear programming
+* `cls` for constrained least squares
+* `cks` for closest kinship matrix
+* `socp` for second order cone programming
 * `cpm` for copositive matrix
 * `lc` for linear complementarity
-* `lp` for linear programming
-* `nqp` for nonnegative quadratic programming
-* `socp` for second order cone programming
 * `spca` for sparse principal components analysis
-* `spm` for sparse precision matrix
+
+Other subfolders represent work-in-progress:
+* `nqp` provides an example of nonnegative quadratic programming. NQP is theoretically subsumed under CLS.
+* `spm` is an incomplete revisit of the sparse precision matrix example from Lange and Keys (2014).
 
 ## External software
 
